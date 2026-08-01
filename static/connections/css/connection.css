@@ -331,3 +331,109 @@ input[type~="submit"] {
   transform: translate(-50%, -50%);
 	color: var(--white-color);
 }
+
+/* --- Tabs (right panel) ------------------------------------------------- */
+.tab-bar {
+  display: flex;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--background-color);
+  border-bottom: var(--border-width) solid var(--border-color);
+}
+
+.tab-button {
+  flex: 1;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 14px 0;
+  background: var(--background-color);
+  color: var(--white-color);
+  border: none;
+  border-bottom: 3px solid transparent;
+  transition: 100ms linear;
+}
+
+.tab-button:hover {
+  color: var(--primary-color);
+}
+
+.tab-button.active {
+  color: var(--primary-color);
+  border-bottom: 3px solid var(--primary-color);
+}
+
+.tab-pane.hidden {
+  display: none;
+}
+
+/* --- Drones tab -------------------------------------------------------- */
+#drone-info-list {
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.drone-empty {
+  color: var(--dark-gray-color);
+  text-align: center;
+  margin-top: 20px;
+  font-size: 16px;
+}
+
+.drone-card {
+  border: 2px solid var(--border-color);
+  padding: 12px 14px;
+}
+
+.drone-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.drone-name {
+  font-size: 18px;
+  color: var(--primary-color);
+}
+
+.drone-status {
+  font-size: 13px;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border: 1px solid currentColor;
+}
+
+.status-active { color: var(--green-color); }
+.status-on_hold { color: #ffcc00; }
+.status-inactive { color: var(--primary-color); }
+
+.drone-field {
+  display: flex;
+  justify-content: space-between;
+  font-size: 15px;
+  padding: 4px 0;
+}
+
+.drone-field span:first-child {
+  color: var(--white-color);
+}
+
+/* --- Log readability --------------------------------------------------- */
+.json-sent, .json-received {
+  font-family: monospace;
+  font-size: 14px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-color);
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.4;
+}
+
+.json-sent {
+  color: var(--green-color);
+}

@@ -151,6 +151,7 @@ function checkJsonType(msg) {
         var id = djangoData['id'];
         var lat = parseFloat(djangoData['lat']);
         var lng = parseFloat(djangoData['lng']);
+        var alt = parseFloat(djangoData['alt']);
         var status = djangoData.hasOwnProperty('status') ? djangoData['status'] : 'active';
         var deviceType = djangoData.hasOwnProperty('device') ? djangoData['device'] : 'teste';
 
@@ -168,7 +169,24 @@ function checkJsonType(msg) {
           }
         }
 
-        notifyUiWhenJsonReceived(msg.data, msgDrone);
+        // Feed the per-drone "Drones" tab from the enriched push (uav_api gs_dev branch):
+        // lat/lng/alt/status + ground_speed/air_speed/heading/battery. Fields the drone
+        // does not send (older uav_api) simply show "—" in the tab.
+        // Position pings are intentionally NOT logged anymore (they flooded the panel).
+        updateDroneInfo(id, {
+          device: deviceType,
+          lat: lat,
+          lng: lng,
+          alt: alt,
+          status: status,
+          time: djangoData['time'],
+          groundspeed: parseFloat(djangoData['ground_speed']),
+          airspeed: parseFloat(djangoData['air_speed']),
+          heading: parseFloat(djangoData['heading']),
+          battery_percent: parseFloat(djangoData['battery_percent']),
+          battery_voltage: parseFloat(djangoData['battery_voltage']),
+        });
+
         // Insert/Update the marker on Google Maps, with it's location
         try {
           gmap.newMarker(id, lat, lng, status, deviceType);
@@ -202,6 +220,69 @@ function checkJsonType(msg) {
     notifyUiWhenJsonReceived(msg.data);
   }
 }
+
+// --- Tabs & per-drone info -------------------------------------------------
+// droneInfo holds the latest known state per drone id, merged from the position
+// push (type 102: lat/lng/alt/status) and the polled telemetry (type 104:
+// alt/airspeed/groundspeed/heading).
+var droneInfo = {};
+
+function switchTab(name) {
+  var showControls = (name === 'controls');
+  document.getElementById('tab-controls').classList.toggle('hidden', !showControls);
+  document.getElementById('tab-drones').classList.toggle('hidden', showControls);
+  document.getElementById('tab-btn-controls').classList.toggle('active', showControls);
+  document.getElementById('tab-btn-drones').classList.toggle('active', !showControls);
+}
+
+function updateDroneInfo(id, fields) {
+  if (id === undefined || id === null) return;
+  if (!droneInfo[id]) droneInfo[id] = { id: id };
+  Object.assign(droneInfo[id], fields);
+  renderDroneTable();
+}
+
+function fmtNum(value, digits) {
+  if (value === undefined || value === null || isNaN(value)) return '—';
+  return Number(value).toFixed(digits);
+}
+
+function renderDroneTable() {
+  var container = document.getElementById('drone-info-list');
+  if (!container) return;
+
+  var ids = Object.keys(droneInfo);
+  if (ids.length === 0) {
+    container.innerHTML = '<p class="drone-empty">No drones connected yet.</p>';
+    return;
+  }
+
+  var html = '';
+  ids.forEach(function(id) {
+    var d = droneInfo[id];
+    var name = ((d.device || 'uav').toUpperCase()) + '-' + id;
+    var st = d.status || 'active';
+    html +=
+      '<div class="drone-card">' +
+        '<div class="drone-card-header">' +
+          '<span class="drone-name">' + name + '</span>' +
+          '<span class="drone-status status-' + st + '">' + st + '</span>' +
+        '</div>' +
+        '<div class="drone-field"><span>Altitude</span><span>' + fmtNum(d.alt, 1) + ' m</span></div>' +
+        '<div class="drone-field"><span>Ground speed</span><span>' + fmtNum(d.groundspeed, 2) + ' m/s</span></div>' +
+        '<div class="drone-field"><span>Air speed</span><span>' + fmtNum(d.airspeed, 2) + ' m/s</span></div>' +
+        '<div class="drone-field"><span>Heading</span><span>' + fmtNum(d.heading, 0) + '°</span></div>' +
+        '<div class="drone-field"><span>Battery</span><span>' + fmtNum(d.battery_percent, 0) + ' %</span></div>' +
+        '<div class="drone-field"><span>Voltage</span><span>' + fmtNum(d.battery_voltage, 2) + ' V</span></div>' +
+        '<div class="drone-field"><span>Latitude</span><span>' + fmtNum(d.lat, 6) + '</span></div>' +
+        '<div class="drone-field"><span>Longitude</span><span>' + fmtNum(d.lng, 6) + '</span></div>' +
+      '</div>';
+  });
+  container.innerHTML = html;
+}
+
+// Render once on load so the empty-state message shows before any drone connects.
+renderDroneTable();
 
 function checkScroll(checkbox) {
   if(checkbox.checked) {

@@ -38,6 +38,17 @@ def create_new_dict(request_received):
     new_dict['lng'] = float(request_received.POST.get('lng'))
   if request_received.POST.get('alt') != None:
     new_dict['alt'] = float(request_received.POST.get('alt'))
+  # Flight telemetry pushed by uav_api (gs_dev branch): speed, heading, battery.
+  if request_received.POST.get('ground_speed') != None:
+    new_dict['ground_speed'] = float(request_received.POST.get('ground_speed'))
+  if request_received.POST.get('air_speed') != None:
+    new_dict['air_speed'] = float(request_received.POST.get('air_speed'))
+  if request_received.POST.get('heading') != None:
+    new_dict['heading'] = float(request_received.POST.get('heading'))
+  if request_received.POST.get('battery_percent') != None:
+    new_dict['battery_percent'] = float(request_received.POST.get('battery_percent'))
+  if request_received.POST.get('battery_voltage') != None:
+    new_dict['battery_voltage'] = float(request_received.POST.get('battery_voltage'))
   if request_received.POST.get('device') != None:
     new_dict['device'] = request_received.POST.get('device')
   if request_received.POST.get('data') != None:

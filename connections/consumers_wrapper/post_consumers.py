@@ -62,14 +62,19 @@ class PostConsumer(AsyncWebsocketConsumer):
     # Upload file to a device through HTTP POST endpoint
     print("Calling upload_file_to_device")
     async with aiohttp.ClientSession() as session:
-      file_data["content"] = io.BytesIO(base64.b64decode(file_data["content"]))
-      print(f'Enviando: {file_data}')
+      # Decode into a fresh local buffer for THIS request only. We must NOT
+      # mutate the shared file_data dict: when "Send to all" is selected the
+      # same dict is passed to every drone's upload task, and overwriting
+      # file_data["content"] with an already-consumed BytesIO makes every
+      # upload after the first one fail silently.
+      content_stream = io.BytesIO(base64.b64decode(file_data["content"]))
+      print(f'Enviando arquivo: {file_data["filename"]}')
 
       # Logging the information to send
       data = aiohttp.FormData()
-      data.add_field('file', file_data["content"], filename=file_data["filename"], content_type=file_data["type"])
-      
-      logger.log_info(source='gs', data=file_data, code_origin='upload-post')
+      data.add_field('file', content_stream, filename=file_data["filename"], content_type=file_data["type"])
+
+      logger.log_info(source='gs', data=file_data["filename"], code_origin='upload-post')
       print(f"Sending http request to url {url}")
       async with session.post(url, data=data) as resp:
         response = await resp.json()
