@@ -184,7 +184,7 @@ function checkJsonType(msg) {
           airspeed: parseFloat(djangoData['air_speed']),
           heading: parseFloat(djangoData['heading']),
           battery_percent: parseFloat(djangoData['battery_percent']),
-          battery_voltage: parseFloat(djangoData['battery_voltage']),
+          ready_to_arm: djangoData['ready_to_arm'],
         });
 
         // Insert/Update the marker on Google Maps, with it's location
@@ -227,12 +227,21 @@ function checkJsonType(msg) {
 // alt/airspeed/groundspeed/heading).
 var droneInfo = {};
 
+function toggleExpand() {
+  // Grows/shrinks the bottom panel (map shrinks) so logs are readable on demand.
+  var page = document.querySelector('.page-container');
+  var expanded = page.classList.toggle('expanded');
+  var btn = document.getElementById('expand-btn');
+  if (btn) btn.textContent = expanded ? '⤡' : '⤢';
+}
+
 function switchTab(name) {
-  var showControls = (name === 'controls');
-  document.getElementById('tab-controls').classList.toggle('hidden', !showControls);
-  document.getElementById('tab-drones').classList.toggle('hidden', showControls);
-  document.getElementById('tab-btn-controls').classList.toggle('active', showControls);
-  document.getElementById('tab-btn-drones').classList.toggle('active', !showControls);
+  // Bottom panel tabs: 'drones' (per-drone info) and 'logs' (message log).
+  var showDrones = (name === 'drones');
+  document.getElementById('tab-drones').classList.toggle('hidden', !showDrones);
+  document.getElementById('tab-logs').classList.toggle('hidden', showDrones);
+  document.getElementById('tab-btn-drones').classList.toggle('active', showDrones);
+  document.getElementById('tab-btn-logs').classList.toggle('active', !showDrones);
 }
 
 function updateDroneInfo(id, fields) {
@@ -268,14 +277,16 @@ function renderDroneTable() {
           '<span class="drone-name">' + name + '</span>' +
           '<span class="drone-status status-' + st + '">' + st + '</span>' +
         '</div>' +
+        '<div class="drone-fields">' +
         '<div class="drone-field"><span>Altitude</span><span>' + fmtNum(d.alt, 1) + ' m</span></div>' +
         '<div class="drone-field"><span>Ground speed</span><span>' + fmtNum(d.groundspeed, 2) + ' m/s</span></div>' +
         '<div class="drone-field"><span>Air speed</span><span>' + fmtNum(d.airspeed, 2) + ' m/s</span></div>' +
         '<div class="drone-field"><span>Heading</span><span>' + fmtNum(d.heading, 0) + '°</span></div>' +
         '<div class="drone-field"><span>Battery</span><span>' + fmtNum(d.battery_percent, 0) + ' %</span></div>' +
-        '<div class="drone-field"><span>Voltage</span><span>' + fmtNum(d.battery_voltage, 2) + ' V</span></div>' +
+        '<div class="drone-field"><span>Ready to arm</span><span>' + (d.ready_to_arm === undefined ? '—' : (d.ready_to_arm ? 'Yes' : 'No')) + '</span></div>' +
         '<div class="drone-field"><span>Latitude</span><span>' + fmtNum(d.lat, 6) + '</span></div>' +
         '<div class="drone-field"><span>Longitude</span><span>' + fmtNum(d.lng, 6) + '</span></div>' +
+        '</div>' +
       '</div>';
   });
   container.innerHTML = html;

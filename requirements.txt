@@ -1,0 +1,24 @@
+# gradys-gs-ng — dependencias MODERNAS (Python 3.10+ / testado em 3.12)
+#
+# Este e o arquivo ATUALIZADO, com as versoes novas fixadas (o que roda no venv 3.12).
+# Os arquivos requeriments.txt e requeriments_linux.txt sao os originais de 2021
+# (mantidos como referencia/historico do projeto).
+#
+# Apenas as dependencias DIRETAS sao fixadas; o pip resolve as transitivas
+# (Twisted, cryptography, daphne, multidict, etc.) automaticamente.
+
+# --- Framework web ---
+Django==5.2.16
+
+# --- WebSockets / servidor ASGI (o extra [daphne] ja traz o daphne) ---
+channels[daphne]==4.3.2
+
+# --- Le o config/.env (SECRET_KEY, GOOGLE_MAPS_API_KEY) ---
+django-environ==0.14.0
+
+# --- Cliente HTTP assincrono para falar com os drones (uav_api) ---
+aiohttp==3.14.3
+
+# --- Serial / ESP32 — remover se o recurso do ESP32 for descartado ---
+aioserial==1.3.1
+pyserial==3.5

@@ -18,7 +18,8 @@ class UpdatePeriodcallyConsumer(AsyncWebsocketConsumer):
     # When the socket connection is stablished, it'll run the looping task to send the list.
     await self.accept()
 
-    self.task = asyncio.create_task(self.send_device_list())
+    send_persistent_list = asyncio.create_task(self.send_device_list())
+    self.task = send_persistent_list
 
 
   async def handle_disconnection_exception(self):

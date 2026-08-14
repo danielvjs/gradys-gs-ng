@@ -11,15 +11,9 @@
 </head>
   <body>
     <div class="page-container grid-template-area">
-      <div class="section-container map-container">
-        <div id="map"></div>
-      </div>
+
+      <!-- ===== SIDEBAR (esquerda): controles ===== -->
       <div class="section-container command-buttons">
-        <div class="tab-bar">
-          <button type="button" class="tab-button active" id="tab-btn-controls" onclick="switchTab('controls')">Controls</button>
-          <button type="button" class="tab-button" id="tab-btn-drones" onclick="switchTab('drones')">Drones</button>
-        </div>
-        <div class="tab-pane" id="tab-controls">
         <div class="select-container">
           <p>Select the device</p>
           <select class="select-device" id="select-device">
@@ -44,20 +38,20 @@
             <label for="rtl" class="label">RTL</label>
           </div>
         </div>
-          <form>
-            <div class="buttons-set-container">
-              <p>Manage Scripts</p>
-              <label for="upload" class="custom-upload" id="custom-input-label">
-                <span class="material-symbols-outlined" id="input-icon">
-                  upload_file
-                </span>
-                Upload Script
-              </label>
-              <input id="upload" type="file">
-              <label for="submit-file" class="custom-submit-file-disabled" id="submit-label">Submit Script</label>
-              <input type="submit" id="submit-file" disabled>
-            </div>
-          </form>
+        <form>
+          <div class="buttons-set-container">
+            <p>Manage Scripts</p>
+            <label for="upload" class="custom-upload" id="custom-input-label">
+              <span class="material-symbols-outlined" id="input-icon">
+                upload_file
+              </span>
+              Upload Script
+            </label>
+            <input id="upload" type="file">
+            <label for="submit-file" class="custom-submit-file-disabled" id="submit-label">Submit Script</label>
+            <input type="submit" id="submit-file" disabled>
+          </div>
+        </form>
         <div class="buttons-set-container">
           <p>Execute Scripts</p>
           <div>
@@ -79,14 +73,30 @@
           <div id="ip-connected"></div>
           <div id="ip-disconnected"></div>
         </div>
+      </div>
+
+      <!-- ===== MAPA (centro/topo) ===== -->
+      <div class="section-container map-container">
+        <div id="map"></div>
+      </div>
+
+      <!-- ===== PAINEL DE BAIXO: abas Drones | Logs ===== -->
+      <div class="section-container bottom-panel">
+        <div class="tab-bar">
+          <button type="button" class="tab-button active" id="tab-btn-drones" onclick="switchTab('drones')">Drones</button>
+          <button type="button" class="tab-button" id="tab-btn-logs" onclick="switchTab('logs')">Logs</button>
+          <button type="button" class="expand-btn" id="expand-btn" onclick="toggleExpand()" title="Expandir / recolher painel">⤢</button>
         </div>
-        <div class="tab-pane hidden" id="tab-drones">
+        <div class="tab-pane" id="tab-drones">
           <div id="drone-info-list"></div>
         </div>
+        <div class="tab-pane hidden" id="tab-logs">
+          <div id="logs">
+            <div id="actions-logs"></div>
+          </div>
+        </div>
       </div>
-      <div class="section-container log" id="logs">
-        <div id="actions-logs"></div>
-      </div>
+
     </div>
 
     <script
