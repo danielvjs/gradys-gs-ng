@@ -1,490 +1,788 @@
-:root {
-  --primary-color: #ff4655;
-  --white-color: #ece8e1;
-  --green-color: #46ff7e;
-  --light-gray-color: #eee;
-  --dark-gray-color: #424242;
-  --background-color: #0f1923;
-  --border-color: #424242;
-  --border-width: 2px;
+/* ==========================================================================
+   GrADyS Ground Station — stylesheet
+   Identity is documented in /DESIGN.md. Read it before changing tokens.
+
+   Core rule: COLOR IS INFORMATION.
+   Nothing decorative is coloured. All chrome is achromatic (graphite + ink).
+   The only saturated colours on screen are the three flight states and the
+   map markers. Selection/hover/focus are expressed with surface, weight and
+   the left status rule — never with a brand colour.
+   ========================================================================== */
+
+/* --- Fonts: self-hosted. Never a CDN — the station runs in the field. ----- */
+@font-face {
+  font-family: 'IBM Plex Sans';
+  src: url('../fonts/plex-sans-400.woff2') format('woff2');
+  font-weight: 400; font-style: normal; font-display: swap;
 }
+@font-face {
+  font-family: 'IBM Plex Sans';
+  src: url('../fonts/plex-sans-500.woff2') format('woff2');
+  font-weight: 500; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'IBM Plex Sans';
+  src: url('../fonts/plex-sans-600.woff2') format('woff2');
+  font-weight: 600; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  src: url('../fonts/plex-mono-400.woff2') format('woff2');
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  src: url('../fonts/plex-mono-500.woff2') format('woff2');
+  font-weight: 500; font-style: normal; font-display: swap;
+}
+
+/* --- Tokens --------------------------------------------------------------- */
+:root {
+  /* surfaces: three achromatic steps. Hierarchy comes from these, not borders */
+  --surface-0: #14171A;
+  --surface-1: #1B1F23;
+  --surface-2: #23282D;
+  --surface-3: #2E353B;   /* selection + hover-on-active; the loudest achromatic step */
+  --line:      #333A40;
+
+  --ink:       #E6E9EC;   /* 13.6:1 on surface-1 */
+  --ink-dim:   #9AA4AD;   /*  6.5:1 */
+
+  /* the only saturated colours in the system — cockpit caution triad */
+  --nominal:   #3FBF6F;   /* 7.0:1 */
+  --caution:   #E8A317;   /* 7.6:1 */
+  --critical:  #F0554B;   /* 4.8:1 */
+
+  --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  /* type scale */
+  --t-xs: 11px;
+  --t-sm: 12px;
+  --t-md: 14px;
+  --t-lg: 16px;
+
+  /* space, base 4 */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-6: 24px;
+  --s-8: 32px;
+
+  --radius: 2px;
+  --rail-w: 64px;
+  --panel-w: 360px;
+
+  --dur: 120ms;
+}
+
+@media (max-width: 1439px) {
+  :root { --panel-w: 320px; }
+}
+
+/* --- Reset ---------------------------------------------------------------- */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 html, body {
   height: 100%;
-  background-color: var(--background-color);
-  color: var(--white-color);
-  font-size: 20px;
+  background: var(--surface-0);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-md);
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
 }
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+button, input, select { font: inherit; color: inherit; }
+
+.sr-only {
+  font-size: var(--t-md); font-weight: 400;   /* keeps the UA h1 size out of the system */
+  position: absolute; width: 1px; height: 1px;
+  margin: -1px; padding: 0; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
 
-.page-container{
+/* One focus treatment for the whole app. The previous stylesheet killed the
+   outline without replacing it, which left keyboard users with no cursor. */
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* --- Shell ---------------------------------------------------------------- */
+.app {
   display: grid;
+  grid-template-columns: var(--rail-w) var(--panel-w) 1fr;
   height: 100vh;
-  grid-template-columns: 0.4fr 1.6fr;   /* sidebar (esquerda) | area principal */
-  grid-template-rows: 1.5fr 0.5fr;       /* mapa (alto) | painel de baixo */
-  transition: grid-template-rows 0.2s ease;
 }
 
-/* painel de baixo expandido (botao de expandir) — mapa encolhe, logs ganham espaco */
-.page-container.expanded {
-  grid-template-rows: 0.6fr 1.4fr;
-}
-
-.grid-template-area {
-  grid-template-areas:
-  "sidebar map"
-  "sidebar bottom"
-  ;
-}
-
-#map {
-  height: 100%;
-}
-
-.map-container {
-  grid-area: map;
-}
-
-.section-container {
-  border: var(--border-width) solid var(--border-color);
-}
-
-.command-buttons {
-  overflow-y: scroll;
-  grid-area: sidebar;
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-
-.command-buttons::-webkit-scrollbar {
-  display: none;
-}
-
-.select-container {
-  margin-top: 20px;
+/* --- Rail ----------------------------------------------------------------- */
+.rail {
   display: flex;
-  align-items: center;
-  justify-content: center;
   flex-direction: column;
-}
-
-.select-device {
-  font-size: 16px;
-  cursor: pointer;
-  margin-top: 10px;
-  padding: 5px;
-  width: 16vw;
-  height: 40px;
-
-  background: var(--background-color);
-  color: var(--white-color);
-  border: 2px solid var(--primary-color);
-}
-
-.select-device:focus {
-  outline: none;
-}
-
-.select-script {
-  font-size: 16px;
-  cursor: pointer;
-  margin-top: 10px;
-  padding: 5px;
-  width: 12vw;
-  height: 40px;
-
-  background: var(--background-color);
-  color: var(--white-color);
-  border: 2px solid var(--primary-color);
-}
-
-.select-script:focus {
-  outline: none;
-}
-
-.buttons-set-container {
-  padding: 20px 0;
-  display: flex;
   align-items: center;
-  justify-content: center;
-  flex-direction: column;
+  gap: var(--s-1);
+  padding: var(--s-3) 0;
+  background: var(--surface-0);
+  border-right: 1px solid var(--line);
 }
 
-.buttons-row-container {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-}
-.button {
-  cursor: pointer;
-  font-size: 16px;
-  margin-top: 10px;
-  background: var(--background-color);
-  color: var(--white-color);
-  width: 16vw;
-  height: 40px;
-  padding: 8px;
-  border: 3px solid var(--white-color);
-  box-shadow: inset 0 0 0 0 var(--primary-color);
-  transition: 100ms linear;
-}
+.rail-spacer { flex: 1; }
 
-.button:hover {
-  /*box-shadow: inset 16vw 0 0 0 var(--primary-color);*/
-  border: 3px solid var(--primary-color);
-}
-
-.button:active {
-  border: 3px solid var(--white-color);
-}
-
-.button#refresh-file-list {
-  width: 4vw;
-  margin-top: 0px;
-  padding-top: 6px;
-}
-
-.button#refresh-file-list:hover {
-  /*box-shadow: inset 16vw 0 0 0 var(--primary-color);*/
-  border: 2px solid var(--primary-color);
-}
-
-.button#refresh-file-list:active {
-  border: 2px solid var(--white-color);
-}
-
-input[type~="file"] {
-  display: none;
-}
-
-input[type~="submit"] {
-  display: none;
-}
-
-.custom-upload {
-  cursor: pointer;
-  display: flex;
-  justify-content: center;
-  align-items: center;
+.rail-btn {
   position: relative;
-  font-size: 18px;
-  margin-top: 10px;
-  background: var(--background-color);
-  color: var(--white-color);
-  width: 16vw;
-  height: 40px;
-  padding: 8px;
-  border: 3px solid var(--white-color);
-  box-shadow: inset 0 0 0 0 var(--primary-color);
-  transition: 100ms linear;
-}
-
-.custom-upload span {
-  color: var(--dark-gray-color);
-  position: absolute;
-  left: 4%;
-}
-
-.custom-upload:hover {
-  /*box-shadow: inset 16vw 0 0 0 var(--primary-color);*/
-  border: 3px solid var(--primary-color);
-}
-
-.custom-upload:active {
-  border: 3px solid var(--white-color);
-}
-
-.material-symbols-outlined {
-  font-variation-settings:
-  'FILL' 0,
-  'wght' 400,
-  'GRAD' 0,
-  'opsz' 48
-}
-
-.custom-submit-file {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  background: none;
+  border: 0;
+  border-radius: var(--radius);
+  color: var(--ink-dim);
   cursor: pointer;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  font-size: 18px;
-  margin-top: 10px;
-  background: var(--background-color);
-  color: var(--white-color);
-  width: 16vw;
-  height: 40px;
-  padding: 8px;
-  border: 3px solid var(--white-color);
-  box-shadow: inset 0 0 0 0 var(--primary-color);
-  transition: 100ms linear;
+  transition: color var(--dur) linear, background-color var(--dur) linear;
 }
 
-.custom-submit-file-disabled {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  font-size: 18px;
-  margin-top: 10px;
-  background: var(--background-color);
-  color: var(--dark-gray-color);
-  width: 16vw;
-  height: 40px;
-  padding: 8px;
-  border: 3px solid var(--dark-gray-color);
-  box-shadow: inset 0 0 0 0 var(--primary-color);
-  transition: 100ms linear;
+.rail-btn svg { width: 22px; height: 22px; fill: currentColor; }
+
+.rail-btn:hover { color: var(--ink); background: var(--surface-1); }
+
+/* Active section: a filled chip and full-strength ink. No brand colour, and no
+   edge marker — a bar against the panel seam read as a rendering artefact. */
+.rail-btn.is-active { color: var(--ink); background: var(--surface-2); }
+.rail-btn.is-active:hover { background: var(--surface-3); }
+
+/* Unread counter on the Logs icon.
+   The old layout kept the log permanently on screen; with it behind an icon,
+   firing a command produced no visible feedback at all unless you happened to
+   be on that panel. This is the signal that the panel has something new. */
+.rail-badge {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  min-width: 17px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: var(--surface-3);
+  border: 1px solid var(--surface-0);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 15px;
+  text-align: center;
 }
 
-.custom-submit-file:hover {
-  /*box-shadow: inset 16vw 0 0 0 var(--primary-color);*/
-  border: 3px solid var(--primary-color);
+/* Same rule as everywhere else: red means something is wrong. */
+.rail-badge.has-error {
+  background: var(--critical);
+  border-color: var(--critical);
+  color: #14171A;
+  font-weight: 600;
 }
 
-.custom-submit-file:active {
-  border: 3px solid var(--white-color);
+/* Tooltips — the only place with a shadow, because they float above the plane */
+.rail-tip {
+  position: absolute;
+  left: calc(100% + 10px);
+  padding: var(--s-1) var(--s-2);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 12px rgb(0 0 0 / .45);
+  font-size: var(--t-sm);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur) linear;
+  z-index: 5;
 }
 
-.bottom-panel {
-  grid-area: bottom;
+.rail-btn:hover .rail-tip,
+.rail-btn:focus-visible .rail-tip,
+.conn:hover .rail-tip,
+.conn:focus-visible .rail-tip { opacity: 1; }
+
+/* Connection indicator — permanent, at the foot of the rail */
+.conn {
+  position: relative;
+  display: grid;
+  place-items: center;
+  gap: 5px;
+  width: 52px;
+  padding: var(--s-2) 0;
+  border-radius: var(--radius);
+  cursor: default;
+}
+
+/* The dot alone did not explain itself. "Status impossible to misread" was an
+   explicit requirement, so the indicator is labelled. */
+.conn-label {
+  font-size: var(--t-xs);
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+.conn[data-state="online"]     .conn-label { color: var(--nominal); }
+.conn[data-state="connecting"] .conn-label { color: var(--caution); }
+.conn[data-state="offline"]    .conn-label { color: var(--critical); }
+
+.conn-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: var(--ink-dim);
+  transition: background-color var(--dur) linear;
+}
+
+.conn[data-state="online"]     .conn-dot { background: var(--nominal); }
+.conn[data-state="connecting"] .conn-dot { background: var(--caution); }
+.conn[data-state="offline"]    .conn-dot { background: var(--critical); }
+
+/* --- Panel ---------------------------------------------------------------- */
+.panel {
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  background: var(--surface-1);
+  border-right: 1px solid var(--line);
   overflow: hidden;
 }
 
-/* a aba ativa preenche o painel de baixo */
-.bottom-panel .tab-pane {
+.pane {
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-height: 0;
 }
 
-/* a aba Drones rola por si; nos Logs, quem rola e o #logs (alvo do auto-scroll) */
-#tab-drones { overflow-y: auto; }
-#tab-logs   { overflow: hidden; }
+.pane.is-hidden { display: none; }
 
-#logs {
-  height: 100%;
-  overflow-y: auto;
-  font-size: 14px;
-}
-
-#actions-logs {
-  color: var(--primary-color);
-  margin-top: 10px;
-}
-
-.json-sent {
-  padding: 10px;
-}
-
-.json-received {
-  padding: 10px;
-  color: var(--white-color);
-}
-
-.connection-status {
-  margin: 20px 10% 20px 10%;
-  padding: 30px;
-  border: solid 3px var(--white-color);
+.pane-head {
   display: flex;
   align-items: center;
-  justify-content: center;
-  flex-direction: column;
-  gap: 8px;
-}
-
-#ip-connected {
-  color: var(--green-color);
-}
-
-#ip-disconnected {
-  color: var(--primary-color);
-}
-
-.checkbox-container {
-  cursor: pointer;
-  font-size: 18px;
-  margin-top: 10px;
-  width: 16vw;
-  height: 40px;
-  border: 3px solid var(--white-color);
-  position: relative;
-}
-
-.label {
-  cursor: pointer;
-  position: absolute;
-  text-align: center;
-  padding-top: 6px;
-  left: 15%;
-  height: 100%;
-  width: 80%;
-}
-
-.custom-checkbox {
-  cursor: pointer;
-  -webkit-appearance: none;
-  appearance: none;
-  background-color: var(--light-gray-color);
-  border: 3px solid var(--primary-color);
-  height: 100%;
-  width: 20%;
-  position: absolute;
-  top: 0;
-  left: 0;
-}
-
-.custom-checkbox:checked {
-	background-color: var(--primary-color);
-  border-right: 3px solid var(--white-color);
-	color: var(--white-color);
-}
-
-.custom-checkbox:checked:after {
-	content: '\2714';
-	font-size: 12px;
-	position: absolute;
-	top: 50%;
-	left: 50%;
-  transform: translate(-50%, -50%);
-	color: var(--white-color);
-}
-
-/* --- Tabs (right panel) ------------------------------------------------- */
-.tab-bar {
-  display: flex;
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  background: var(--background-color);
-  border-bottom: var(--border-width) solid var(--border-color);
-}
-
-.tab-button {
-  flex: 1;
-  cursor: pointer;
-  font-size: 16px;
-  padding: 14px 0;
-  background: var(--background-color);
-  color: var(--white-color);
-  border: none;
-  border-bottom: 3px solid transparent;
-  transition: 100ms linear;
-}
-
-.tab-button:hover {
-  color: var(--primary-color);
-}
-
-.tab-button.active {
-  color: var(--primary-color);
-  border-bottom: 3px solid var(--primary-color);
-}
-
-/* botao de expandir/recolher o painel de baixo */
-.expand-btn {
+  gap: var(--s-2);
+  padding: var(--s-4);
+  border-bottom: 1px solid var(--line);
   flex: 0 0 auto;
-  width: 44px;
-  cursor: pointer;
-  font-size: 18px;
-  background: var(--background-color);
-  color: var(--white-color);
-  border: none;
-  transition: 100ms linear;
 }
 
-.expand-btn:hover {
-  color: var(--primary-color);
-}
-
-.tab-pane.hidden {
-  display: none;
-}
-
-/* --- Drones tab -------------------------------------------------------- */
-#drone-info-list {
-  padding: 16px 12px;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
-  gap: 14px;
-  align-content: start;
-}
-
-.drone-empty {
-  color: var(--dark-gray-color);
-  text-align: center;
-  margin-top: 20px;
-  font-size: 16px;
-}
-
-.drone-card {
-  border: 2px solid var(--border-color);
-  padding: 12px 14px;
-}
-
-.drone-card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 10px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.drone-name {
-  font-size: 18px;
-  color: var(--primary-color);
-}
-
-.drone-status {
-  font-size: 13px;
+.pane-title {
+  font-size: var(--t-sm);
+  font-weight: 600;
+  letter-spacing: .09em;
   text-transform: uppercase;
-  padding: 2px 8px;
-  border: 1px solid currentColor;
+  color: var(--ink-dim);
 }
 
-.status-active { color: var(--green-color); }
-.status-on_hold { color: #ffcc00; }
-.status-inactive { color: var(--primary-color); }
+.count {
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+  color: var(--ink);
+  background: var(--surface-2);
+  padding: 1px var(--s-2);
+  border-radius: var(--radius);
+}
 
-/* campos em colunas: preenche 3 por coluna, depois passa para a proxima */
-.drone-fields {
+.pane-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin-left: auto;
+}
+
+.pane-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* --- Fleet list — the signature element ----------------------------------
+   Each row carries a 3px status rule on its left edge. Stacked, the rules
+   form one continuous column: fleet health readable from the panel edge
+   without reading a single number.
+   ------------------------------------------------------------------------- */
+/* Flex column so rows can be ordered by drone id without moving DOM nodes —
+   rows are created on first sighting, and first sighting is not id order. */
+.fleet { list-style: none; display: flex; flex-direction: column; }
+
+.fleet-row {
+  position: relative;
   display: grid;
-  grid-template-rows: repeat(3, auto);
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(130px, 1fr);
-  column-gap: 22px;
-  row-gap: 2px;
+  grid-template-columns: 1fr auto;
+  gap: 2px var(--s-2);
+  width: 100%;
+  padding: var(--s-3) var(--s-4) var(--s-3) var(--s-4);
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--dur) linear;
 }
 
-.drone-field {
+.fleet-row::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--line);
+  transition: background-color var(--dur) linear;
+}
+
+.fleet-row[data-state="active"]::before   { background: var(--nominal); }
+.fleet-row[data-state="on_hold"]::before  { background: var(--caution); }
+.fleet-row[data-state="inactive"]::before { background: var(--critical); }
+
+.fleet-row:hover { background: var(--surface-2); }
+
+/* Selection: surface + weight, not colour. This is the highest-stakes state in
+   the interface — it decides where Arm and Takeoff go — so it takes the
+   loudest achromatic step available, not a subtle one. */
+.fleet-row.is-selected { background: var(--surface-3); }
+.fleet-row.is-selected:hover { background: #363E45; }
+.fleet-row.is-selected .fleet-name { font-weight: 600; }
+.fleet-row.is-selected .fleet-meta { color: var(--ink); }
+
+.fleet-name {
+  font-family: var(--font-mono);
+  font-size: var(--t-md);
+  color: var(--ink);
+}
+
+/* The word is achromatic on purpose. Colouring it as well as the rule said the
+   same thing twice, and 11px of saturated red on an elevated row row fell to
+   3.6:1. Colour lives in one place — the rule; the word spells it out. */
+.fleet-state {
+  font-size: var(--t-xs);
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  align-self: center;
+}
+
+.fleet-row.is-selected .fleet-state { color: var(--ink); }
+
+.fleet-meta {
+  grid-column: 1 / -1;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--t-sm);
+  color: var(--ink-dim);
+}
+
+/* Only the exceptional condition takes colour — a cockpit annunciator lights up
+   when something is NOT nominal, it does not light up to say "fine". Amber and
+   not red: red text fails contrast on the selected row (see DESIGN.md). */
+.fleet-meta .not-ready { color: var(--caution); }
+
+/* "All drones" — same row mechanics, no status rule of its own */
+.fleet-row.is-all::before { background: transparent; }
+.fleet-row.is-all .fleet-name { font-family: var(--font-sans); }
+
+/* --- Telemetry -----------------------------------------------------------
+   Pinned above the commands rather than sitting inside the scrolling list:
+   with a full fleet the readout would otherwise scroll out of view, and with
+   a small fleet it left a dead gap in the middle of the panel.
+   ------------------------------------------------------------------------- */
+.telemetry {
+  flex: 0 0 auto;
+  padding: var(--s-4);
+  border-top: 1px solid var(--line);
+}
+
+.telemetry-head {
+  font-size: var(--t-xs);
+  font-weight: 600;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  margin-bottom: var(--s-3);
+}
+
+/* Two columns where the panel is wide enough; the eight fields then cost
+   ~110px of height instead of ~230px. */
+.telemetry dl { display: grid; grid-template-columns: 1fr; column-gap: var(--s-4); }
+
+@media (min-width: 1440px) {
+  .telemetry dl { grid-template-columns: 1fr 1fr; }
+}
+
+.tele-field {
   display: flex;
   justify-content: space-between;
-  gap: 10px;
-  font-size: 15px;
-  padding: 4px 0;
+  gap: var(--s-3);
+  padding: 3px 0;
+  font-size: var(--t-sm);
 }
 
-.drone-field span:first-child {
-  color: var(--white-color);
+.tele-field dt { color: var(--ink-dim); }
+
+/* Tabular figures: telemetry updates every second. Without this the digits
+   change width and the number jitters in place while you are reading it. */
+.tele-field dd {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
 }
 
-/* --- Log readability --------------------------------------------------- */
-.json-sent, .json-received {
-  font-family: monospace;
-  font-size: 14px;
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--border-color);
+.tele-field dd.is-caution  { color: var(--caution); }
+.tele-field dd.is-critical { color: var(--critical); }
+
+/* --- Empty states --------------------------------------------------------- */
+.empty {
+  padding: var(--s-8) var(--s-4);
+  text-align: center;
+  color: var(--ink-dim);
+  font-size: var(--t-sm);
+}
+
+.empty strong {
+  display: block;
+  color: var(--ink);
+  font-size: var(--t-md);
+  font-weight: 500;
+  margin-bottom: var(--s-1);
+}
+
+.hint {
+  font-size: var(--t-sm);
+  color: var(--ink-dim);
+  margin-top: var(--s-2);
+}
+
+/* --- Commands ------------------------------------------------------------- */
+.commands {
+  flex: 0 0 auto;
+  padding: var(--s-4);
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+/* Says out loud where the next click lands. This is the question the operator
+   is actually asking when the cursor is over Arm. */
+.cmd-target {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  font-size: var(--t-xs);
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+.cmd-target b {
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink);
+}
+
+.cmd-group { display: flex; flex-direction: column; gap: var(--s-2); }
+
+.cmd-label {
+  font-size: var(--t-xs);
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+.cmd-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-2); }
+
+.commands-blocked {
+  font-size: var(--t-sm);
+  color: var(--critical);
+  border-left: 3px solid var(--critical);
+  padding-left: var(--s-2);
+}
+
+/* --- Buttons -------------------------------------------------------------- */
+.btn {
+  min-height: 36px;
+  padding: var(--s-2) var(--s-3);
+  background: var(--surface-2);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-size: var(--t-md);
+  cursor: pointer;
+  transition: background-color var(--dur) linear, border-color var(--dur) linear;
+}
+
+.btn:hover:not(:disabled) { background: #2C3238; border-color: #454D55; }
+.btn:active:not(:disabled) { background: var(--surface-1); }
+
+.btn:disabled {
+  color: var(--ink-dim);
+  background: var(--surface-1);
+  cursor: not-allowed;
+  opacity: .55;
+}
+
+.btn-block { width: 100%; }
+
+/* Land / RTL keep their toggle semantics (28↔29, 30↔31). They are state
+   buttons now instead of checkboxes: the engaged state is unmistakable.
+
+   The :hover variant is not decoration — without it, `.btn:hover:not(:disabled)`
+   (0,3,0) outranks the attribute selector (0,2,0) and an engaged toggle loses
+   its fill while the pointer rests on it. That is the one control where a wrong
+   reading is expensive. */
+.btn-toggle[aria-pressed="true"]:not(:disabled) {
+  background: var(--caution);
+  border-color: var(--caution);
+  color: #14171A;
+  font-weight: 600;
+}
+
+.btn-toggle[aria-pressed="true"]:hover:not(:disabled) {
+  background: #D19314;
+  border-color: #D19314;
+}
+
+.icon-btn {
+  display: grid;
+  place-items: center;
+  width: 32px; height: 32px;
+  background: none;
+  border: 0;
+  border-radius: var(--radius);
+  color: var(--ink-dim);
+  cursor: pointer;
+  transition: color var(--dur) linear, background-color var(--dur) linear;
+}
+
+.icon-btn svg { width: 18px; height: 18px; fill: currentColor; }
+.icon-btn:hover { color: var(--ink); background: var(--surface-2); }
+
+/* --- Forms ---------------------------------------------------------------- */
+.block { padding: var(--s-4); border-bottom: 1px solid var(--line); }
+
+.block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+}
+
+.block-title {
+  font-size: var(--t-xs);
+  font-weight: 600;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  margin-bottom: var(--s-2);
+}
+
+.block-head .block-title { margin-bottom: 0; }
+
+.select {
+  width: 100%;
+  min-height: 36px;
+  margin-top: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  background: var(--surface-2);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.select + .btn-block { margin-top: var(--s-3); }
+
+input[type="file"] { display: none; }
+
+.filedrop {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: 40px;
+  padding: var(--s-2) var(--s-3);
+  background: var(--surface-2);
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  color: var(--ink-dim);
+  font-size: var(--t-sm);
+  cursor: pointer;
+  transition: border-color var(--dur) linear, color var(--dur) linear;
+}
+
+.filedrop svg { width: 18px; height: 18px; fill: currentColor; flex: 0 0 auto; }
+.filedrop:hover { border-color: var(--ink-dim); color: var(--ink); }
+
+.filedrop.has-file {
+  border-style: solid;
+  border-color: var(--nominal);
+  color: var(--ink);
+}
+
+.filedrop span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.filedrop + .btn-block { margin-top: var(--s-3); }
+
+/* --- Running scripts ------------------------------------------------------ */
+.running { list-style: none; margin-top: var(--s-2); }
+
+.running-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 2px var(--s-2);
+  padding: var(--s-2) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.running-row:last-child { border-bottom: 0; }
+
+/* Every cell is placed explicitly. An item with a definite row but an auto
+   column is placed BEFORE the auto-flow items, which put the button in the
+   first column and pushed the name out to the second. */
+.running-name {
+  grid-column: 1;
+  grid-row: 1;
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.running-meta {
+  grid-column: 1;
+  grid-row: 2;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--t-xs);
+  color: var(--ink-dim);
+}
+
+/* A stop is destructive mid-flight, so it reads as an action, not a quiet icon.
+   Still achromatic: it is a command, not a state. */
+.btn-stop {
+  grid-column: 2;
+  grid-row: 1 / 3;
+  min-height: 28px;
+  padding: var(--s-1) var(--s-3);
+  font-size: var(--t-sm);
+}
+
+.switch {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--t-sm);
+  color: var(--ink-dim);
+  cursor: pointer;
+}
+
+.switch input {
+  appearance: none;
+  width: 32px; height: 18px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  position: relative;
+  cursor: pointer;
+  transition: background-color var(--dur) linear;
+}
+
+.switch input::after {
+  content: '';
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  background: var(--ink-dim);
+  transition: transform var(--dur) linear, background-color var(--dur) linear;
+}
+
+.switch input:checked { background: var(--surface-2); border-color: var(--nominal); }
+.switch input:checked::after { transform: translateX(14px); background: var(--nominal); }
+
+/* --- Logs ----------------------------------------------------------------- */
+#logs {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.log-line {
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-4) var(--s-2) 14px;
+  border-left: 2px solid transparent;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+  line-height: 1.4;
   white-space: pre-wrap;
   word-break: break-word;
-  line-height: 1.4;
 }
 
-.json-sent {
-  color: var(--green-color);
+/* Direction never relies on colour alone: TX/RX is spelled out and carries a
+   left rule, so it survives both greyscale and a colour-blind reader. */
+.log-dir {
+  color: var(--ink-dim);
+  font-weight: 500;
+  letter-spacing: .05em;
+}
+
+.log-line.is-sent { border-left-color: var(--ink); }
+.log-line.is-sent .log-dir { color: var(--ink); }
+.log-line.is-recv { border-left-color: var(--line); }
+
+.log-line.is-error { border-left-color: var(--critical); }
+.log-line.is-error .log-dir { color: var(--critical); }
+
+.log-prefix { color: var(--ink-dim); }
+
+/* --- Log syntax highlighting ---------------------------------------------
+   A deliberate, scoped exception to "only flight states are coloured": a log
+   is a code surface, and syntax IS information. The two hues are picked from
+   OUTSIDE the caution triad precisely so they can never be mistaken for a
+   flight state. Registered in DESIGN.md.
+   ------------------------------------------------------------------------- */
+.j-key  { color: var(--ink-dim); }              /* structure recedes */
+.j-str  { color: #8FBCE6; }                     /* 8.3:1 on surface-1 */
+.j-num  { color: #C6A0F6; }                     /* 7.7:1 */
+.j-bool { color: var(--ink); font-weight: 500; }
+
+/* --- Map ------------------------------------------------------------------ */
+.map-wrap { min-width: 0; position: relative; }
+#map { width: 100%; height: 100%; background: var(--surface-0); }
+
+/* --- Scrollbars ----------------------------------------------------------- */
+.pane-scroll::-webkit-scrollbar,
+#logs::-webkit-scrollbar { width: 10px; }
+
+.pane-scroll::-webkit-scrollbar-thumb,
+#logs::-webkit-scrollbar-thumb {
+  background: var(--surface-2);
+  border: 3px solid var(--surface-1);
+  border-radius: 5px;
+}
+
+/* --- Motion: one orchestrated moment -------------------------------------
+   A row pulses once, in amber, when its drone enters caution. Nothing else
+   in the interface animates layout.
+   ------------------------------------------------------------------------- */
+@keyframes caution-pulse {
+  0%, 100% { background-color: transparent; }
+  40%      { background-color: rgb(232 163 23 / .16); }
+}
+
+.fleet-row.pulse-caution { animation: caution-pulse 900ms ease-out 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }
