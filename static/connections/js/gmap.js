@@ -97,17 +97,6 @@ var VEHICLE_GLYPHS = {
     '<path class="nose" d="M12 3.4 L14.4 8.2 L9.6 8.2 Z"/>',
 };
 
-// uav_api reports "uav" for everything today (gradys_gs.py hardcodes it), so
-// that has to land on the copter shape. The rest of the table is ready for the
-// day the backend reports the real type.
-var DEVICE_TO_GLYPH = {
-  uav: 'copter', copter: 'copter', quad: 'copter', quadcopter: 'copter',
-  plane: 'plane', fixedwing: 'plane', vtol: 'plane',
-  boat: 'boat', usv: 'boat', ship: 'boat',
-  sub: 'sub', uuv: 'sub', submarine: 'sub',
-  ugv: 'ugv', rover: 'ugv', car: 'ugv',
-};
-
 // ---------------------------------------------------------------------------
 // Icon style. Switch this to compare the two sets on the running station.
 //
@@ -116,7 +105,7 @@ var DEVICE_TO_GLYPH = {
 //   'missionplanner'— the PNGs from ArduPilot's own GCS.
 //
 // NOTE on 'missionplanner': those files are GPL-3.0. Fine for evaluating locally,
-// but see DESIGN.md before committing them — this project declares no licence and
+// but see DESIGN.md before shipping them — this project declares no licence and
 // its sibling (gradys-sim-nextgen) is MIT.
 // ---------------------------------------------------------------------------
 var ICON_STYLE = 'svg';
@@ -131,16 +120,53 @@ var MP_ICONS = {
 };
 
 // Each drawing has its own idea of where "forward" is; this brings them all to
-// nose-north so the heading rotation means the same thing for every vehicle.
-// Measured against north: quad2, boat, sub and rover are drawn nose-up, but
-// plane2 is drawn pointing north-west, so it needs +45 to mean the same thing.
-// A set drawn by different hands over the years does not share a convention.
+// nose-north. Measured against north: only plane2 is drawn pointing north-west.
 var MP_ROTATION_OFFSET = {
   copter: 0, plane: 45, boat: 0, sub: 0, ugv: 0, generic: 0,
 };
 
+// vehicle_api sends whatever --custom_device_name says, as a free-form string:
+// it is not an enum, so "Boat", "boat-2" and "barco" are all things a user can
+// legitimately type. Matching is therefore normalised and substring-based, and
+// anything unrecognised still gets a marker — never a silent wrong drawing.
+var DEVICE_TO_GLYPH = {
+  uav: 'copter', copter: 'copter', quad: 'copter', quadcopter: 'copter', drone: 'copter',
+  intruder: 'boat', intruso: 'boat', target: 'boat', contact: 'boat', alvo: 'boat',
+  plane: 'plane', fixedwing: 'plane', aviao: 'plane', vtol: 'plane',
+  boat: 'boat', usv: 'boat', ship: 'boat', barco: 'boat', lancha: 'boat',
+  sub: 'sub', uuv: 'sub', submarine: 'sub', submarino: 'sub', rov: 'sub',
+  ugv: 'ugv', rover: 'ugv', car: 'ugv', terrestre: 'ugv',
+};
+
+// Vehicles for which altitude says nothing about whether they are working:
+// a boat and a rover never leave 0 m, and a surfaced submarine sits at 0 m too.
+// For these, ground speed is the signal — otherwise they read as "grounded"
+// forever, which is both wrong and useless.
+var SURFACE_GLYPHS = ['boat', 'ugv', 'sub'];
+
+// An intruder is not one of ours. It is a detection: something a drone saw and
+// reported, with no link to keep, no battery, no commands. It is drawn on the
+// map and deliberately kept out of the fleet list, which is a list of things you
+// can command.
+var INTRUDER_DEVICES = ['intruder', 'target', 'contact', 'intruso', 'alvo'];
+
+function isIntruder(deviceType) {
+  return INTRUDER_DEVICES.indexOf(normaliseDevice(deviceType)) !== -1;
+}
+
+function normaliseDevice(deviceType) {
+  return String(deviceType || '').toLowerCase().replace(/[^a-z]/g, '');
+}
+
 function glyphKey(deviceType) {
-  return DEVICE_TO_GLYPH[String(deviceType || '').toLowerCase()] || 'generic';
+  var key = normaliseDevice(deviceType);
+  if (DEVICE_TO_GLYPH[key]) return DEVICE_TO_GLYPH[key];
+  // "boat2", "uav_alpha", "planeA" — a name that carries a known word still
+  // draws the right vehicle instead of falling through to the generic marker.
+  var hit = Object.keys(DEVICE_TO_GLYPH).find(function (k) {
+    return k.length > 2 && key.indexOf(k) !== -1;
+  });
+  return hit ? DEVICE_TO_GLYPH[hit] : 'generic';
 }
 
 function glyphFor(deviceType) {
@@ -167,23 +193,30 @@ var BATTERY_CRITICAL = 20;   // %, red below this
 // the real armed flag — Copter.armed() exists there, it is simply never sent.
 var AIRBORNE_ALT = 1.0;
 
-function vehicleCondition(info, linkState) {
-  if (linkState === 'lost') return 'critical';       // an aircraft we cannot hear is a problem
-  if (!info) return 'nominal';
+// m/s above which a surface vehicle counts as under way.
+var SURFACE_MOVING_SPEED = 0.3;
 
-  var batt = parseFloat(info.battery_percent);
-  if (!isNaN(batt)) {
-    if (batt <= BATTERY_CRITICAL) return 'critical';
-    if (batt <= BATTERY_CAUTION) return 'caution';
-  }
-  // Cannot arm while sitting on the ground: worth attention, not an alarm.
-  if (!isAirborne(info) && info.ready_to_arm === false) return 'caution';
+// Colour reports the LINK, which is what the ground station actually measures:
+// how long since this vehicle last reported. Green = talking to us, amber =
+// quiet for a while, red = gone. Thresholds live in config.ini, [list-updater].
+//
+// Battery and arming readiness are NOT on the marker: they are in the fleet
+// list, where there is room to say the number instead of implying it.
+function vehicleCondition(info, linkState) {
+  if (linkState === 'lost')  return 'critical';
+  if (linkState === 'stale') return 'caution';
   return 'nominal';
 }
 
-function isAirborne(info) {
+function isAirborne(info, deviceType) {
   if (!info) return true;
-  if (info.armed === true) return true;             // once uav_api sends it
+  if (info.armed === true) return true;             // if a backend ever sends it
+
+  if (SURFACE_GLYPHS.indexOf(glyphKey(deviceType || info.device)) !== -1) {
+    var spd = parseFloat(info.groundspeed);
+    return isNaN(spd) ? true : spd > SURFACE_MOVING_SPEED;
+  }
+
   var alt = parseFloat(info.alt);
   return isNaN(alt) ? true : alt > AIRBORNE_ALT;
 }
@@ -263,13 +296,14 @@ class GroundStationMap {
     var rot = isNaN(parseFloat(heading)) ? null : parseFloat(heading);
     var link = linkStateFrom(status);
     var cond = vehicleCondition(info, link);
-    var airborne = isAirborne(info);
+    var airborne = isAirborne(info, deviceType);
     var selected = String(this.selectedId) === String(id);
 
     var key = glyphKey(deviceType);
+    var intruder = isIntruder(deviceType);
     var body;
 
-    if (ICON_STYLE === 'missionplanner') {
+    if (ICON_STYLE === 'missionplanner' && !intruder) {
       var deg = (rot === null ? 0 : rot) + (MP_ROTATION_OFFSET[key] || 0);
       body =
         '<img class="veh-body veh-png" src="/static/connections/images/vehicles/' +
@@ -281,6 +315,22 @@ class GroundStationMap {
         (rot === null ? '' : ' style="transform:rotate(' + rot + 'deg)"') + '>' +
         glyphFor(deviceType) +
         '</svg>';
+    }
+
+    if (intruder) {
+      // Red, and labelled in words. Red alone would be ambiguous — one of our
+      // own vehicles goes red when its link dies — so the label carries the
+      // meaning and the colour only reinforces it.
+      return L.divIcon({
+        html:
+          '<div class="veh is-intruder" data-cond="critical">' +
+            body +
+            '<span class="veh-id veh-intruder-tag">INTRUDER</span>' +
+          '</div>',
+        className: 'veh-marker',
+        iconSize: [44, 44],
+        iconAnchor: [22, 22],
+      });
     }
 
     var html =

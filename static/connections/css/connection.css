@@ -337,19 +337,13 @@ button, input, select { font: inherit; color: inherit; }
 .fleet-row[data-cond="caution"]::before  { background: var(--caution); }
 .fleet-row[data-cond="critical"]::before { background: var(--critical); }
 
-/* Silent rows fade, the same way their markers ghost on the map: the data is
-   old, and the row should not look as confident as a live one. */
-.fleet-row.is-stale { opacity: .78; }
-.fleet-row.is-lost  { opacity: .62; }
-.fleet-row.is-lost::before { background: repeating-linear-gradient(
-   180deg, var(--critical) 0 4px, transparent 4px 8px); }
+/* No fading here either: the row keeps full contrast and says "no signal" in
+   words, with the elapsed time. Dimming a row makes it harder to read exactly
+   when you most need to read it. */
 
 .fleet-meta .no-signal { color: var(--caution); }
 .fleet-row.is-lost .fleet-meta .no-signal { color: var(--critical); }
 
-/* Grounded: the name recedes a little. Nothing is hidden — a parked vehicle is
-   simply not what you are watching. */
-.fleet-row.is-grounded .fleet-name { color: var(--ink-dim); }
 
 .fleet-row:hover { background: var(--surface-2); }
 
@@ -910,35 +904,11 @@ input[type="file"] { display: none; }
 .veh[data-cond="caution"]  .veh-body { fill: var(--caution); }
 .veh[data-cond="critical"] .veh-body { fill: var(--critical); }
 
-/* CHANNEL 2 — fill: airborne or on the ground. Hollow reads as "parked" without
-   spending a colour on it, which would have collided with the triad. */
-/* A transparent fill let the 2.1px outline close over the smaller shapes and
-   the marker turned into a dark blob at 34px. A pale fill keeps the silhouette
-   open while still reading as "parked, not flying". */
-.veh.is-grounded .veh-body { fill: #F2F4F5; }
-.veh.is-grounded .veh-body .nose { fill: #14171A; }
-
-/* Grounded still has to carry its condition: a parked drone with a dead battery
-   must not look like a parked healthy one — that is exactly the state you check
-   before takeoff. The outline takes the colour the fill gave up. */
-.veh.is-grounded[data-cond="caution"]  .veh-body { stroke: var(--caution); stroke-width: 2.6; }
-.veh.is-grounded[data-cond="critical"] .veh-body { stroke: var(--critical); stroke-width: 2.6; }
-
-/* CHANNEL 3 — ghosting: how old this information is. Losing the link does not
-   mean the aircraft stopped; it means we no longer know. A faded, dashed marker
-   says that honestly, where a solid one would assert something we cannot see. */
-.veh.is-stale .veh-body { opacity: .55; }
-.veh.is-lost  .veh-body { opacity: .38; }
-
-.veh.is-lost::before {
-  content: '';
-  position: absolute;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  border: 2px dashed var(--critical);
-  opacity: .85;
-}
+/* No ghosting and no hollow state: the marker is always a solid, saturated
+   shape. Fading it made vehicles read as white smudges on a pale basemap, and a
+   marker you have to squint at is worse than one that is simply the wrong
+   colour. How long a vehicle has been quiet is said in words below the icon
+   instead — see .veh-silence. */
 
 .veh-silence {
   position: absolute;
@@ -955,6 +925,30 @@ input[type="file"] { display: none; }
 }
 
 .veh.is-lost .veh-silence { color: var(--critical); }
+
+/* --- Intruder -------------------------------------------------------------
+   A detected target, not one of ours. Red, and labelled in words: red alone
+   would be ambiguous, because one of our own vehicles goes red when its link
+   dies. The word carries the meaning; the colour only reinforces it.
+   ------------------------------------------------------------------------- */
+.veh.is-intruder .veh-body {
+  fill: var(--critical);
+  stroke: #14171A;
+  stroke-width: 2.1;
+  /* It does rotate: a contact under way has a course, and seeing where it is
+     headed is the point of watching it. */
+}
+
+/* Two classes, so this wins over .veh-id regardless of where either lands in
+   the file — relying on source order is how the first attempt lost. */
+.veh.is-intruder .veh-intruder-tag {
+  background: var(--critical);
+  color: #14171A;
+  font-weight: 600;
+  letter-spacing: .06em;
+}
+
+
 
 /* The nose mark reads as a cut-out, so the heading is legible at a glance. */
 .veh-body .nose { fill: #14171A; stroke: none; }

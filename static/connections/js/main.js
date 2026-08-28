@@ -97,6 +97,19 @@ function checkJsonType(msg) {
         var status = djangoData.hasOwnProperty('status') ? djangoData['status'] : 'active';
         var deviceType = djangoData.hasOwnProperty('device') ? djangoData['device'] : 'teste';
 
+        // An intruder is a detection, not a vehicle of ours: it goes on the map
+        // and nowhere near the fleet list, which is the list of things you can
+        // command. Keeping it out is the point, not an omission.
+        if (isIntruder(deviceType)) {
+          try {
+            gmap.newMarker('int-' + id, lat, lng, status, deviceType,
+                           djangoData['heading'], null);
+          } catch (e) {
+            console.error('Falha ao desenhar intruso', e);
+          }
+          break;
+        }
+
         // The fleet list is derived straight from droneInfo, so there is no
         // separate list of active devices to keep in sync any more.
         //
@@ -297,6 +310,13 @@ function droneName(d) {
   return ((d.device || 'uav').toUpperCase()) + '-' + d.id;
 }
 
+// "flying/grounded" is meaningless for a boat. The word follows the vehicle.
+function movementLabel(d, moving) {
+  var surface = SURFACE_GLYPHS.indexOf(glyphKey(d.device)) !== -1;
+  if (surface) return moving ? 'under way' : 'stopped';
+  return moving ? 'flying' : 'grounded';
+}
+
 function readyLabel(value) {
   // Arming readiness sits in the row summary next to altitude and battery.
   // Only the blocking case is coloured.
@@ -364,7 +384,7 @@ function renderFleet() {
     // "inactive" because we stopped hearing it was simply wrong.
     var link = linkStateFrom(d.status);
     var cond = vehicleCondition(d, link);
-    var airborne = isAirborne(d);
+    var airborne = isAirborne(d, d.device);
 
     row.btn.dataset.cond = cond;
     row.btn.classList.toggle('is-grounded', !airborne);
@@ -373,7 +393,7 @@ function renderFleet() {
 
     row.btn.querySelector('.fleet-name').textContent = droneName(d);
     row.btn.querySelector('.fleet-state').textContent =
-      link === 'fresh' ? (airborne ? 'flying' : 'grounded') : 'no signal';
+      link === 'fresh' ? movementLabel(d, airborne) : 'no signal';
 
     // Values are numbers from fmtNum, so innerHTML carries nothing user-supplied.
     row.btn.querySelector('.fleet-meta').innerHTML =
@@ -431,7 +451,7 @@ function renderTelemetry() {
       var d = droneInfo[id];
       var link = linkStateFrom(d.status);
       if (link !== 'fresh') silent += 1;
-      else if (isAirborne(d)) flying += 1;
+      else if (isAirborne(d, d.device)) flying += 1;
       else grounded += 1;
       if (!isNaN(d.battery_percent)) {
         if (minBattery === null || d.battery_percent < minBattery) minBattery = d.battery_percent;
@@ -440,8 +460,8 @@ function renderTelemetry() {
     host.innerHTML =
       '<p class="telemetry-head">Fleet summary</p>' +
       '<dl>' +
-      teleField('Flying', String(flying), flying > 0 ? 'nominal' : '') +
-      teleField('Grounded', String(grounded), '') +
+      teleField('Under way', String(flying), flying > 0 ? 'nominal' : '') +
+      teleField('Stopped', String(grounded), '') +
       teleField('No signal', String(silent), silent > 0 ? 'critical' : '') +
       teleField('Lowest battery', minBattery === null ? '—' : fmtNum(minBattery, 0) + ' %', batteryTone(minBattery)) +
       '</dl>';
