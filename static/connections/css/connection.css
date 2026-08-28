@@ -330,9 +330,26 @@ button, input, select { font: inherit; color: inherit; }
   transition: background-color var(--dur) linear;
 }
 
-.fleet-row[data-state="active"]::before   { background: var(--nominal); }
-.fleet-row[data-state="on_hold"]::before  { background: var(--caution); }
-.fleet-row[data-state="inactive"]::before { background: var(--critical); }
+/* The status rule now carries the vehicle's CONDITION, matching the map marker.
+   It used to carry the server's active/on_hold/inactive, which measures radio
+   silence — so a healthy flying drone turned red for having gone quiet. */
+.fleet-row[data-cond="nominal"]::before  { background: var(--nominal); }
+.fleet-row[data-cond="caution"]::before  { background: var(--caution); }
+.fleet-row[data-cond="critical"]::before { background: var(--critical); }
+
+/* Silent rows fade, the same way their markers ghost on the map: the data is
+   old, and the row should not look as confident as a live one. */
+.fleet-row.is-stale { opacity: .78; }
+.fleet-row.is-lost  { opacity: .62; }
+.fleet-row.is-lost::before { background: repeating-linear-gradient(
+   180deg, var(--critical) 0 4px, transparent 4px 8px); }
+
+.fleet-meta .no-signal { color: var(--caution); }
+.fleet-row.is-lost .fleet-meta .no-signal { color: var(--critical); }
+
+/* Grounded: the name recedes a little. Nothing is hidden — a parked vehicle is
+   simply not what you are watching. */
+.fleet-row.is-grounded .fleet-name { color: var(--ink-dim); }
 
 .fleet-row:hover { background: var(--surface-2); }
 
@@ -753,9 +770,254 @@ input[type="file"] { display: none; }
 .j-num  { color: #C6A0F6; }                     /* 7.7:1 */
 .j-bool { color: var(--ink); font-weight: 500; }
 
+/* --- Collapsing -----------------------------------------------------------
+   Both collapses exist for the same reason: the map is the thing you are
+   actually watching, and everything else is there to serve it. Neither hides
+   anything irreversibly — the control that closes it also reopens it, and stays
+   on screen while closed.
+   ------------------------------------------------------------------------- */
+
+/* Fleet panel: fold away telemetry and the command block, so the list of
+   vehicles gets the whole panel. */
+.pane.is-collapsed .telemetry,
+.pane.is-collapsed .commands { display: none; }
+
+#toggle-details svg { transition: transform var(--dur) linear; }
+#toggle-details[aria-expanded="false"] svg { transform: rotate(180deg); }
+
+/* Whole side panel: the map takes the full width.
+   Two column tracks, not three with a zero: display:none removes the panel from
+   the grid entirely, so a third track would leave the map sitting in the empty
+   middle column at zero width. */
+.app.panel-hidden { grid-template-columns: var(--rail-w) 1fr; }
+.app.panel-hidden .panel { display: none; }
+
+/* The toggle lives in the rail rather than floating over the map. The rail is
+   the one strip that is always on screen, so the same control closes and
+   reopens the panel — and nothing is ever laid on top of the map. */
+#toggle-panel[aria-expanded="false"] { color: var(--ink); background: var(--surface-2); }
+
 /* --- Map ------------------------------------------------------------------ */
 .map-wrap { min-width: 0; position: relative; }
 #map { width: 100%; height: 100%; background: var(--surface-0); }
+
+/* Leaflet ships light-themed chrome. Left alone it puts white boxes on a dark
+   instrument panel, so the controls are brought into the system. Attribution
+   is a licence requirement, not decoration — it stays legible, it just stops
+   shouting. */
+.leaflet-container { background: var(--surface-0); font-family: var(--font-sans); }
+
+/* Turns OpenStreetMap's own (colourful) tiles into a near-colourless basemap,
+   the way CARTO Positron looked before it started demanding a key. Done in CSS
+   so the map depends on nobody: the tiles stay the plain OSM ones.
+   The map has to stay uncoloured — it is the largest surface on screen, and the
+   vehicle markers must be the only saturated thing on it. */
+.basemap-muted { filter: saturate(.12) brightness(1.06) contrast(.94); }
+
+.leaflet-control-attribution {
+  background: rgb(20 23 26 / .78) !important;
+  color: var(--ink-dim);
+  font-size: var(--t-xs);
+  padding: 2px var(--s-2);
+  border-top-left-radius: var(--radius);
+}
+
+.leaflet-control-attribution a { color: var(--ink-dim); }
+.leaflet-control-attribution a:hover { color: var(--ink); }
+
+.leaflet-bar,
+.leaflet-bar a {
+  background: var(--surface-1);
+  color: var(--ink);
+  border-color: var(--line);
+}
+
+.leaflet-bar a:hover { background: var(--surface-2); color: var(--ink); }
+.leaflet-bar a.leaflet-disabled { background: var(--surface-1); color: var(--ink-dim); }
+.leaflet-touch .leaflet-bar { border: 1px solid var(--line); border-radius: var(--radius); }
+
+/* Same focus treatment as the rest of the app. */
+.leaflet-bar a:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+/* Basemap switcher. Deliberately a control on the map rather than a setting
+   buried in a panel: which basemap reads best depends on where you are flying,
+   so it is a per-moment choice, not a preference. */
+.leaflet-control-layers {
+  background: var(--surface-1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 12px rgb(0 0 0 / .45);
+  color: var(--ink);
+}
+
+.leaflet-control-layers-toggle {
+  background-color: var(--surface-1);
+  filter: invert(1) hue-rotate(180deg) brightness(1.4);
+}
+
+.leaflet-control-layers-expanded { padding: var(--s-2) var(--s-3); }
+
+.leaflet-control-layers label {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--t-sm);
+  padding: 2px 0;
+  cursor: pointer;
+}
+
+.leaflet-control-layers label:hover { color: var(--ink); }
+.leaflet-control-layers-separator { border-top: 1px solid var(--line); }
+
+/* --- Vehicle markers -------------------------------------------------------
+   Drawn as SVG at runtime instead of the 1224 pre-rendered PNGs. Shape from the
+   vehicle type, colour from these tokens, id as text.
+
+   Visibility is the hard part: the marker has to survive a pale basemap, a dark
+   one, a green park and a grey motorway. Three devices do that work — a graphite
+   outline for edge definition, a drop shadow to lift the shape off the ground,
+   and a saturated fill that nothing else on the map competes with.
+   ------------------------------------------------------------------------- */
+.veh-marker { background: none; border: 0; }
+
+.veh {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+}
+
+.veh-body {
+  width: 34px;
+  height: 34px;
+  /* rotation is set inline from the heading */
+  transition: transform var(--dur) linear;
+  fill: var(--ink-dim);
+  stroke: #14171A;
+  /* 1.4 was too thin to register at 34px against a pale basemap — the shape
+     read as a flat green blob. Kept graphite rather than white: the basemap is
+     light, so a white outline would dissolve into it. */
+  stroke-width: 2.1;
+  stroke-linejoin: round;
+  paint-order: stroke fill;          /* outline outside the shape, never eating it */
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / .55));
+}
+
+/* CHANNEL 1 — colour: the vehicle's condition. Same triad as the rest of the
+   interface, and nothing else ever uses it. */
+.veh[data-cond="nominal"]  .veh-body { fill: var(--nominal); }
+.veh[data-cond="caution"]  .veh-body { fill: var(--caution); }
+.veh[data-cond="critical"] .veh-body { fill: var(--critical); }
+
+/* CHANNEL 2 — fill: airborne or on the ground. Hollow reads as "parked" without
+   spending a colour on it, which would have collided with the triad. */
+/* A transparent fill let the 2.1px outline close over the smaller shapes and
+   the marker turned into a dark blob at 34px. A pale fill keeps the silhouette
+   open while still reading as "parked, not flying". */
+.veh.is-grounded .veh-body { fill: #F2F4F5; }
+.veh.is-grounded .veh-body .nose { fill: #14171A; }
+
+/* Grounded still has to carry its condition: a parked drone with a dead battery
+   must not look like a parked healthy one — that is exactly the state you check
+   before takeoff. The outline takes the colour the fill gave up. */
+.veh.is-grounded[data-cond="caution"]  .veh-body { stroke: var(--caution); stroke-width: 2.6; }
+.veh.is-grounded[data-cond="critical"] .veh-body { stroke: var(--critical); stroke-width: 2.6; }
+
+/* CHANNEL 3 — ghosting: how old this information is. Losing the link does not
+   mean the aircraft stopped; it means we no longer know. A faded, dashed marker
+   says that honestly, where a solid one would assert something we cannot see. */
+.veh.is-stale .veh-body { opacity: .55; }
+.veh.is-lost  .veh-body { opacity: .38; }
+
+.veh.is-lost::before {
+  content: '';
+  position: absolute;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 2px dashed var(--critical);
+  opacity: .85;
+}
+
+.veh-silence {
+  position: absolute;
+  top: 52px;
+  padding: 0 4px;
+  border-radius: var(--radius);
+  background: rgb(20 23 26 / .82);
+  color: var(--caution);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 13px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.veh.is-lost .veh-silence { color: var(--critical); }
+
+/* The nose mark reads as a cut-out, so the heading is legible at a glance. */
+.veh-body .nose { fill: #14171A; stroke: none; }
+
+/* Sits clear of the 44px icon box so neighbouring labels in a tight formation
+   collide less, and never under the selection ring. */
+/* Mission Planner style: raster PNGs, so no fill/stroke tokens apply — the
+   colour is baked into the file and therefore cannot carry flight state. */
+.veh-png {
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / .55));
+}
+
+.veh-id {
+  position: absolute;
+  top: 38px;
+  padding: 0 4px;
+  border-radius: var(--radius);
+  background: rgb(20 23 26 / .82);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* Selection is a ring, never a colour change: repainting a failed vehicle would
+   erase the failure at the exact moment you are acting on it.
+   The first attempt was a thin translucent ring and it was too quiet to find in
+   a formation — so the ring now carries a plate behind the vehicle as well.
+   Loud, but still achromatic. */
+.veh-ring {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  opacity: 0;
+  transition: opacity var(--dur) linear;
+}
+
+/* plate: lifts the selected vehicle off the map */
+.veh-ring circle:nth-child(1) {
+  fill: #FFFFFF;
+  fill-opacity: .92;
+  stroke: #14171A;
+  stroke-width: 3;
+}
+
+/* inner keyline, so the plate reads as a deliberate ring and not a smudge */
+.veh-ring circle:nth-child(2) {
+  fill: none;
+  stroke: #14171A;
+  stroke-width: 1;
+  stroke-opacity: .45;
+}
+
+.veh.is-selected .veh-ring { opacity: 1; }
+
+/* The glyph loses its own shadow while on the plate — two shadows read as dirt */
+.veh.is-selected .veh-body { filter: none; }
 
 /* --- Scrollbars ----------------------------------------------------------- */
 .pane-scroll::-webkit-scrollbar,

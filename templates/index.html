@@ -5,7 +5,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>GrADyS · Ground Station</title>
+  <link rel="stylesheet" href="{% static 'connections/vendor/leaflet/leaflet.css' %}">
   <link rel="stylesheet" href="{% static 'connections/css/connection.css' %}">
+  <script src="{% static 'connections/vendor/leaflet/leaflet.js' %}"></script>
   <script src="{% static 'connections/js/gmap.js' %}"></script>
 </head>
 <body>
@@ -38,6 +40,13 @@
 
       <div class="rail-spacer"></div>
 
+      <button type="button" class="rail-btn" id="toggle-panel"
+              aria-expanded="true" aria-controls="side-panel"
+              title="Esconder o painel">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 4.5h17a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-17a1 1 0 0 1-1-1v-13a1 1 0 0 1 1-1zm1.3 1.8v11.4h5.3V6.3H4.8zm7.1 0v11.4h7.3V6.3h-7.3z"/></svg>
+        <span class="rail-tip" id="toggle-panel-tip">Esconder o painel</span>
+      </button>
+
       <div class="conn" id="conn" data-state="connecting" tabindex="0" role="status">
         <span class="conn-dot" aria-hidden="true"></span>
         <span class="conn-label" aria-hidden="true">Link</span>
@@ -48,13 +57,20 @@
     </nav>
 
     <!-- ============ PANEL ============ -->
-    <section class="panel">
+    <section class="panel" id="side-panel">
 
       <!-- ---- Fleet ---- -->
       <div class="pane" id="pane-fleet" role="tabpanel" aria-labelledby="rail-fleet">
         <header class="pane-head">
           <h2 class="pane-title">Fleet</h2>
           <span class="count" id="fleet-count">0</span>
+          <div class="pane-actions">
+            <button type="button" class="icon-btn" id="toggle-details"
+                    aria-expanded="true" aria-controls="telemetry commands"
+                    title="Recolher telemetria e comandos" aria-label="Recolher telemetria e comandos">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.4 15.4 12 10.8l4.6 4.6 1.4-1.4L12 8 6 14z"/></svg>
+            </button>
+          </div>
         </header>
 
         <div class="pane-scroll">
@@ -178,10 +194,6 @@
     var serverAddress = "{{server_address}}";
   </script>
   <script src="{% static 'connections/js/main.js' %}"></script>
-  <script
-    src="https://maps.googleapis.com/maps/api/js?key={{google_maps_key}}&callback=gmap.initMap&libraries=&v=weekly"
-    async
-  ></script>
 
 </body>
 </html>

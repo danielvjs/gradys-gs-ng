@@ -19,6 +19,11 @@ var autoScroll = true;
 var selectedId = 'all';
 
 
+// Commands the interface fires on a timer rather than because the operator
+// pressed something. They never reach the log: the log is a record of what was
+// done and what came back, and a 5-second poll is neither.
+var QUIET_COMMANDS = [48];   // 48 = mission/running-scripts, polled by the Scripts panel
+
 // receiverOverride lets a command target one drone regardless of the fleet
 // selection — stopping UAV-21's script must not stop the whole fleet's.
 function sendCommand(cmdNumber, buttonType="default", data={}, receiverOverride) {
@@ -40,7 +45,7 @@ function sendCommand(cmdNumber, buttonType="default", data={}, receiverOverride)
   // The PostConsumer will receive the command and handle it
   if (receivePostSocket.readyState == WebSocket.OPEN) {
     receivePostSocket.send(jsonToSend);
-    notifyUiWhenJsonSent(jsonToSend);
+    if (QUIET_COMMANDS.indexOf(cmdNumber) === -1) notifyUiWhenJsonSent(jsonToSend);
   }
 
   // The ReceiveCommandConsumer will receive the command and handle it
@@ -57,6 +62,17 @@ function getDeviceReceiver() {
   return selectedId;
 }
 
+
+// True for responses that say only "I received it" — no telemetry, no error, no
+// content. Those are noise; a command that actually reports something is not.
+function isBareAck(data) {
+  if (!data || typeof data !== 'object') return false;
+  var meaningful = Object.keys(data).filter(function (k) {
+    return ['id', 'type', 'device', 'seq', 'ip', 'time', 'method', 'status', 'mode'].indexOf(k) === -1;
+  });
+  if (meaningful.length !== 1 || meaningful[0] !== 'result') return false;
+  return /^(ok|success)$/i.test(String(data.result));
+}
 
 function checkJsonType(msg) {
   // The main logic to handle received messages
@@ -104,7 +120,7 @@ function checkJsonType(msg) {
 
         // Insert/Update the marker on Google Maps, with it's location
         try {
-          gmap.newMarker(id, lat, lng, status, deviceType);
+          gmap.newMarker(id, lat, lng, status, deviceType, djangoData['heading'], droneInfo[id]);
         } catch(e) {
           console.error("Error connecting to google maps")
         }
@@ -125,6 +141,10 @@ function checkJsonType(msg) {
         break;
       // The default behavior to other types not included above
       default:
+        // A bare acknowledgement carries nothing the Fleet panel does not
+        // already show, and at one per drone per poll it buries the answers
+        // that matter. Anything with a real payload still gets logged.
+        if (isBareAck(djangoData)) break;
         msgDefault = djangoData.hasOwnProperty('device') ? msgDrone : msgDefault;
         notifyUiWhenJsonReceived(msg.data, msgDefault);
         break;
@@ -158,6 +178,7 @@ function renderLogBadge() {
 function switchPanel(name) {
   // Rail navigation: 'fleet' | 'scripts' | 'logs'. One panel visible at a time;
   // the map is never covered.
+  if (!document.getElementById('pane-' + name)) return;   // never hide everything
   if (name === 'logs') {
     unreadLogs = 0;
     unreadHasError = false;
@@ -176,9 +197,39 @@ function switchPanel(name) {
   setRunningPoll(name === 'scripts');
 }
 
-document.querySelectorAll('.rail-btn').forEach(function(btn) {
+// Only the tabs switch panels. The rail also holds the panel toggle, which is a
+// .rail-btn for styling but carries no data-panel — binding it here would have
+// called switchPanel(undefined) and hidden every pane at once.
+document.querySelectorAll('.rail-btn[data-panel]').forEach(function(btn) {
   btn.addEventListener('click', function() { switchPanel(btn.dataset.panel); });
 });
+
+
+// ===========================================================================
+// UI — collapsing
+// ===========================================================================
+// Both give the map more room. Leaflet has to be told when its container
+// changes size, otherwise it keeps rendering into the old box and the tiles
+// tear — invalidateSize() after the layout settles.
+
+document.getElementById('toggle-details').onclick = function () {
+  var pane = document.getElementById('pane-fleet');
+  var open = !pane.classList.toggle('is-collapsed');
+  this.setAttribute('aria-expanded', open ? 'true' : 'false');
+  this.title = open ? 'Recolher telemetria e comandos' : 'Mostrar telemetria e comandos';
+};
+
+document.getElementById('toggle-panel').onclick = function () {
+  var app = document.querySelector('.app');
+  var open = !app.classList.toggle('panel-hidden');
+  this.setAttribute('aria-expanded', open ? 'true' : 'false');
+  var label = open ? 'Esconder o painel' : 'Mostrar o painel';
+  this.title = label;
+  document.getElementById('toggle-panel-tip').textContent = label;
+  setTimeout(function () {
+    try { gmap.map.invalidateSize(); } catch (e) { /* map not up yet */ }
+  }, 160);
+};
 
 
 // ===========================================================================
@@ -216,9 +267,8 @@ var fleetRows = {};
 // Ids that just entered caution, consumed by the next render to pulse once.
 var pulseIds = {};
 
-// Battery thresholds used for the caution/critical treatment of the value.
-var BATTERY_CAUTION = 35;
-var BATTERY_CRITICAL = 20;
+// Battery thresholds live in gmap.js, which loads first — single source, so the
+// fleet list and the map markers can never disagree about what "low" means.
 
 function updateDroneInfo(id, fields) {
   if (id === undefined || id === null) return;
@@ -256,6 +306,9 @@ function readyLabel(value) {
 
 function selectDrone(id) {
   selectedId = id;
+  // The map shows the selection with a ring, so the operator can see on the map
+  // which vehicle the commands are aimed at — not just in the list.
+  try { gmap.setSelected(id); } catch (e) { /* map may not be up yet */ }
   renderFleet();
   renderTelemetry();
 }
@@ -305,14 +358,30 @@ function renderFleet() {
       list.appendChild(row.li);
     }
     row.li.style.order = String(index);
-    var st = d.status || 'active';
-    row.btn.dataset.state = st;
+    // Same three channels as the map marker, so the list and the map can never
+    // disagree. "active/on_hold/inactive" from the server is NOT shown as-is:
+    // those are computed purely from radio silence, so calling a flying drone
+    // "inactive" because we stopped hearing it was simply wrong.
+    var link = linkStateFrom(d.status);
+    var cond = vehicleCondition(d, link);
+    var airborne = isAirborne(d);
+
+    row.btn.dataset.cond = cond;
+    row.btn.classList.toggle('is-grounded', !airborne);
+    row.btn.classList.toggle('is-stale', link === 'stale');
+    row.btn.classList.toggle('is-lost', link === 'lost');
+
     row.btn.querySelector('.fleet-name').textContent = droneName(d);
-    row.btn.querySelector('.fleet-state').textContent = st.replace('_', ' ');
+    row.btn.querySelector('.fleet-state').textContent =
+      link === 'fresh' ? (airborne ? 'flying' : 'grounded') : 'no signal';
+
     // Values are numbers from fmtNum, so innerHTML carries nothing user-supplied.
     row.btn.querySelector('.fleet-meta').innerHTML =
-      'alt ' + fmtNum(d.alt, 1) + ' m · bat ' + fmtNum(d.battery_percent, 0) + ' % · ' +
-      readyLabel(d.ready_to_arm);
+      link === 'fresh'
+        ? ('alt ' + fmtNum(d.alt, 1) + ' m · bat ' + fmtNum(d.battery_percent, 0) + ' % · ' +
+           readyLabel(d.ready_to_arm))
+        : ('<span class="no-signal">silent ' + silenceLabel(d).replace('há ', '') +
+           '</span> · last alt ' + fmtNum(d.alt, 1) + ' m');
 
     if (pulseIds[id]) {
       delete pulseIds[id];
@@ -354,13 +423,16 @@ function renderTelemetry() {
   if (ids.length === 0) { host.innerHTML = ''; return; }
 
   if (selectedId === 'all') {
-    var counts = { active: 0, on_hold: 0, inactive: 0 };
-    var minBattery = null;
+    // Counted by what the operator actually needs to know, not by the server's
+    // silence buckets: how many are up, how many are parked, how many have gone
+    // quiet, and the worst battery in the fleet.
+    var flying = 0, grounded = 0, silent = 0, minBattery = null;
     ids.forEach(function(id) {
       var d = droneInfo[id];
-      var st = d.status || 'active';
-      if (counts[st] === undefined) counts[st] = 0;
-      counts[st] += 1;
+      var link = linkStateFrom(d.status);
+      if (link !== 'fresh') silent += 1;
+      else if (isAirborne(d)) flying += 1;
+      else grounded += 1;
       if (!isNaN(d.battery_percent)) {
         if (minBattery === null || d.battery_percent < minBattery) minBattery = d.battery_percent;
       }
@@ -368,9 +440,9 @@ function renderTelemetry() {
     host.innerHTML =
       '<p class="telemetry-head">Fleet summary</p>' +
       '<dl>' +
-      teleField('Active', String(counts.active), counts.active > 0 ? 'nominal' : '') +
-      teleField('On hold', String(counts.on_hold), counts.on_hold > 0 ? 'caution' : '') +
-      teleField('Inactive', String(counts.inactive), counts.inactive > 0 ? 'critical' : '') +
+      teleField('Flying', String(flying), flying > 0 ? 'nominal' : '') +
+      teleField('Grounded', String(grounded), '') +
+      teleField('No signal', String(silent), silent > 0 ? 'critical' : '') +
       teleField('Lowest battery', minBattery === null ? '—' : fmtNum(minBattery, 0) + ' %', batteryTone(minBattery)) +
       '</dl>';
     return;

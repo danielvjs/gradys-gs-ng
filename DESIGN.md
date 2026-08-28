@@ -85,9 +85,28 @@ Fora do painel de Logs, essas cores não existem.
 
 ## Tema
 
-**Escuro, decidido — não default.** Dark + acento é clichê de interface gerada por IA; a justificativa aqui é concreta: o mapa ocupa a maior parte da tela e é claro. Chrome escuro cria a separação que chrome claro não criaria, e faz do mapa o único lugar colorido — que é o ponto da regra central. Verificado contra imagem de satélite real, não contra mock.
+**Chrome escuro, decidido — não default.** Dark + acento é clichê de interface gerada por IA; a justificativa aqui é concreta: o mapa ocupa a maior parte da tela e é claro, então o chrome escuro cria a separação que chrome claro não criaria. O painel é o instrumento; o mapa é o mundo.
+
+Isto vale para o **chrome**. A base do mapa é clara — ver "Base de mapa" abaixo, inclusive por que a tentativa de deixá-la escura falhou.
 
 Não existe tema claro. Se for pedido (sol em campo), é decisão nova, não variante gratuita.
+
+## Base de mapa
+
+**Leaflet + OpenStreetMap, base clara dessaturada (CARTO Positron).** Sem chave, sem cartão, auto-hospedável.
+
+A escolha é contraintuitiva e vale o registro. A primeira tentativa foi base **escura**, no raciocínio de que combinaria com o chrome grafite e faria os pinos brilharem. Deu errado por dois motivos:
+
+1. O mapa virou uma folha preta — não dava para separar rio de terra, e ler o terreno é a função do mapa numa estação de controle.
+2. Os pinos se destacavam por **brilho**, não por cor. Sobre a base clara eles se destacam por **saturação**, que é mais robusto e é o que a regra central manda.
+
+O mapa Positron é cinza-esverdeado quase sem croma. Isso faz dele a maior superfície da tela **sem cor** — então os pinos verde/âmbar/vermelho ficam sendo a única coisa saturada em toda a interface. A base clara honra "cor é informação" melhor que a escura honrava.
+
+Como composição: chrome escuro emoldurando mapa claro dá figura/fundo imediato — **o painel é o instrumento, o mapa é o mundo**.
+
+Há um seletor de camadas no mapa (Claro · Voyager · Escuro · OSM). É controle, não preferência: qual base lê melhor depende de onde se está voando. Satélite, se um dia for preciso, é mais uma entrada no mesmo objeto `BASEMAPS`.
+
+**Atribuição do OSM é obrigatória por licença** — fica no rodapé direito, estilizada nos tokens para não gritar nem sumir.
 
 ## Tipografia
 

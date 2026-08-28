@@ -10,7 +10,7 @@ This is a repository for the Ground Station framework, developed for the GrADyS 
 
 # Installation
 ## Prerequisites
-In order to use the components in this repository, you need to have Python 3.0 or higher installed. Also pip, a Python package manager, is recomended to manage and automatically install the required packages of this project. 
+In order to use the components in this repository, you need to have Python 3.10 or higher installed (tested on 3.12). Also pip, a Python package manager, is recomended to manage and automatically install the required packages of this project. 
 To install Python on Windows, [follow these instructions](https://docs.python.org/3/using/windows.html).
 After installing Python, pip should be installed by default. You can check if it's already installed and it's version:
 ```console
@@ -49,31 +49,32 @@ gradys-gs$ source venv/bin/activate
 If you need more information about virtual environments with python, it [can be found here](https://packaging.python.org/guides/installing-using-pip-and-virtual-environments/#creating-a-virtual-environment).
 
 ## Installing necessary packages
-The list of necessary packages are inside requeriments.txt file, if you are using Windows. It'll be installed automatically, using the Python package manager, pip. You can install, running on Windows console:
+The list of necessary packages is in **requirements.txt**. The same file works on Windows and on Linux — every pinned dependency is cross-platform, so there is no longer a separate Linux file.
+
 ```console
 Windows
-C:\path-to-this-cloned-repository\> pip3 install -r requeriments.txt
+C:\path-to-this-cloned-repository\> pip3 install -r requirements.txt
 ```
-
-On Linux, you should run the compatible script file, requeriments_linux.txt:
 ```console
 Linux
-gradys-gs$ pip3 install -r requeriments_linux.txt
+gradys-gs$ pip3 install -r requirements.txt
 ```
 
+> Older revisions of this project shipped `requeriments.txt` and `requeriments_linux.txt` (note the misspelling). Both were removed — they pinned 2021 versions that no longer install on current Python. Use `requirements.txt`.
+
 ## Secret variables
-This project uses Google Maps services, with paid features IFF used above a threshold. To use these functionalities you need to have or create a Google Maps API Key. [Google's guide on how to create an API Key](https://developers.google.com/maps/gmp-get-started).</br>
-This project also use Django Framework that has a secret key variable, for security purposes.
+The map runs on **Leaflet + OpenStreetMap**, which needs no API key and no billing account, so the only secret you have to provide is Django's.
+
 You can [generate your Django secret key here](https://djecrety.ir/).
-The framework will load automatically these as environment variables. With both private keys created, 
+
 <!--ts-->
-  * Create a file named */config/.env* and insert the secret keys:
+  * Create a file named */config/.env* and insert:
     * SECRET_KEY='xxxx'
     *Changing xxxx with your Django secret key*
-    * GOOGLE_MAPS_API_KEY='xxxx'
-    *Changing xxxx with your Google Maps key (Maps javascript API on your Google Cloud API)*
     * You shall maintain the ' ' from the 'xxxx'
 <!--te-->
+
+> **No Google Maps key is required.** Earlier versions loaded the Google Maps JavaScript API, which needs a key tied to a Google Cloud billing account, and the server refused to start without it. `GOOGLE_MAPS_API_KEY` is still read if present, but it is optional and unused.
 
 # Usage
 
@@ -145,11 +146,14 @@ Now we want a view to handle the new url path request. A view is a Python functi
 ```python
 def index(request):
   context = {
-    'google_maps_key': settings.GOOGLE_MAPS_API_KEY
+    'google_maps_key': settings.GOOGLE_MAPS_API_KEY,
+    'server_address': config['server']['ip_groundstation_server']
   }
   return render(request, 'index.html', context=context)
 ```
-The example above is the **index view**, accessed when home page is loaded. It receives a request, creates a context variable, with the google maps key from *.env*, and load the *index.html* template, attached with the context.
+The example above is the **index view**, accessed when home page is loaded. It receives a request, builds a context dictionary and renders the *index.html* template with it. `server_address` is the ground station address from *config.ini*, which the page hands to the browser so the JavaScript knows where to open its WebSockets.
+
+> `google_maps_key` is vestigial: since the map moved to Leaflet + OpenStreetMap the template no longer reads it. It is kept here only because this section documents the view as it currently stands.
 We store our views inside */connections/views.py*. If you want to create the new view, it should receive a **request** and **return** something (could be anything). To send additional parameters, you can send via the url, for example, the url localhost:8000/new-path/10/, needs to be declared inside the *connections/urls.py* as integer as:
 ```python
 path('new-path/<int:id>/', new_view)
@@ -499,8 +503,7 @@ update_delay = 20
     ├── uav_simulator       # Logic to run Ardupilot SITL simulator 
     ├── config.ini          # Contains project's adjustable parameters
     ├── manage.py           # Django’s command-line utility for administrative tasks
-    ├── requeriments.txt    # Contains all packages and versions required for Windows
-    ├── ´´_linux.txt        # Contains all packages and versions required for Linux
+    ├── requirements.txt    # All packages and versions required (Windows and Linux)
     └── README.md
 
 We will open the folders that require more attention:
