@@ -4,9 +4,17 @@ Web application, from Project GrADyS, to monitor, control and display mobile dev
 # Introduction
 This is a repository for the Ground Station framework, developed for the GrADyS project and future IoT projects. It's an extensible and reusable framework to help visualize the location and activity status of interconnected network nodes, monitor and store the flow of data and send commands to a set of devices with different protocols. According to the project's needs, the framework is extensible, introducing ways to insert new buttons, commands, protocols, and functionalities.
 
+![Current interface: fleet panel, telemetry and commands on the left, Leaflet map with one icon per vehicle type on the right](/readme_images/mainInterface.png)
+
+The station talks HTTP with one [`vehicle_api`](https://github.com/beswarmdev/vehicle_api) process per vehicle, which in turn speaks MAVLink to ArduPilot (real or SITL). Telemetry comes in through `POST /update-info/`; commands go out as HTTP requests to each vehicle's API.
+
+<details>
+<summary>Previous interface (Google Maps era)</summary>
+
 ![Main showcase](/readme_images/mainShowcase.gif)
 
 ![Main showcase 2](/readme_images/mainShowcaseNew.gif)
+</details>
 
 # Installation
 ## Prerequisites
@@ -93,7 +101,13 @@ Or, with diferent IP/PORT, in the example below, Port 8000 on IP address 0.0.0.0
 ```console
 C:\path-to-this-cloned-repository\> python3 manage.py runserver 0.0.0.0:8000
 ```
-Remember to insert, inside config.ini file, the correct IP + Port, on [post] category, if changed to a specific IP, when running the command above.
+Remember to insert, inside config.ini file, the correct IP + Port, on the `[server]` section (`ip_groundstation_server`), if changed to a specific IP, when running the command above. The page reads this value to know where to open its WebSockets.
+
+> **To see something on the map** you need a vehicle reporting telemetry. The vehicle side lives in a separate repository, [`vehicle_api`](https://github.com/beswarmdev/vehicle_api), which runs one process per vehicle (real or ArduPilot SITL) and pushes its position to this station. A simulated drone pointing at a station on the same machine is started with:
+> ```console
+> vehicle-api --simulated true --ardupilot_path ~/ardupilot --location AbraDF --port 8001 --sysid 1 --gradys_gs 127.0.0.1:8000
+> ```
+> The `uav_simulator/` folder in this repository is a legacy Flask simulator from 2022 that no longer matches the station's protocol; see the **Folders structure** section.
 
 ## Connecting to home page
 Now you should be able to connect to the home page, acessing, on your browser, the IP/PORT the server is up, on default: localhost:8000.
@@ -114,7 +128,9 @@ Both modules comunicate with each other via WebSocket channels. A socket connect
 
 ![Project Architecture](/readme_images/architecture.png)
 
-As shown in Figure above, external devices can send messages to FlexStation via the Connections sub-module. The information processing is done in the Django Channels submodule, also responsible for passing the information to the interface, through an already established WebSocket connection. Messages exchanged between the frontend and backend modules follow the JSON format. Note that the described path, from the external device to the interface, is also possible in reverse, when a command is activated on the interface.
+> The diagram predates the current interface: "FlexStation" was the project's former name, and the "virtual maps" box is now Leaflet rather than Google Maps. The module layout it shows is still accurate.
+
+As shown in Figure above, external devices can send messages to the Ground Station via the Connections sub-module. The information processing is done in the Django Channels submodule, also responsible for passing the information to the interface, through an already established WebSocket connection. Messages exchanged between the frontend and backend modules follow the JSON format. Note that the described path, from the external device to the interface, is also possible in reverse, when a command is activated on the interface.
 <br>
 The information gate of the ground station to external devices is through Connections submodule, which constains the routes and logic to receive/send information.
 
@@ -126,11 +142,12 @@ The information gate of the ground station to external devices is through Connec
 To understand the server-side structure of this project, first it's required a basic understanding of how Django is structured and how it operates.
 Building a URL scheme with Django is a simple task, thanks to the URL/View mapping that the python web framework provides.
 When a user requests a page from the URL schema, Django does a mapping to the corresponding Python function, that's called *View*.</br>
-So, for example, the URL scheme below has a mapping between the **home page** path and **index** view, also between ***/command/*** path (note that 'command' is a simple integer) and **receive_command_test** view.
+So, for example, the URL scheme below (the real one, from *connections/urls.py*) has a mapping between the **home page** path and **index** view, between ***/get-uav-ip/*** and **send_uav_ip** (returns the IP a vehicle registered, given its id), and between the path in `[post] path_receive_info` (***/update-info/*** by default) and **post_to_socket**, the view that receives the vehicles' telemetry.
 ```python
 urlpatterns = [
     path('', index),
-    path('<int:command>/', receive_command_test),
+    path('get-uav-ip/', send_uav_ip),
+    path(path_receive_info, post_to_socket),
 ]
 ```
  Inside the main app's folder, *connections*, there is *urls.py* and *views.py* files. The *urls.py* file is responsible for making the association between a URL address and a view. Note that there is another *urls.py* file, inside the *config* folder, that is responsible for the whole project's pathing. So, for example, if there was another app in our project, we could create a prefix path to that specific app. Our main app has the default path, so there's no prefix attached. 
@@ -138,7 +155,8 @@ urlpatterns = [
 ```python
 urlpatterns = [
     path('', index),
-    path('<int:command>/', receive_command_test),
+    path('get-uav-ip/', send_uav_ip),
+    path(path_receive_info, post_to_socket),
     path('new-path/', new_view)
 ]
 ```
@@ -173,15 +191,25 @@ The logic to stablish a websocket connection is similar with the URL/View logic 
 ws_urlpatterns = [
   path('ws/connection/', ConnectionConsumer.as_asgi()),
   path('ws/receive/', ReceiveCommandConsumer.as_asgi()),
+  path('ws/update-info/', PostConsumer.as_asgi()),
+  path('ws/update-periodically/', UpdatePeriodcallyConsumer.as_asgi())
 ]
 ```
-As said, Django Channels makes a mapping, associating an url with a ***Consumer***. A Consumer is a Python Class that handles a websocket connection.
-So, when our Javascript is loaded, it tries to connect with a specific Consumer, accessing a specific URL, inside our ws_urlpatters.
+As said, Django Channels makes a mapping, associating an url with a ***Consumer***. A Consumer is a Python Class that handles a websocket connection. The four sockets above are:
+
+| Route | Consumer | What it carries |
+|---|---|---|
+| `ws/update-info/` | `PostConsumer` | **The main channel.** Telemetry pushed by the vehicles goes to the browser through it, and every command the operator clicks travels back through it to be turned into an HTTP request against the vehicle |
+| `ws/update-periodically/` | `UpdatePeriodcallyConsumer` | Re-sends the list of known devices every `update_delay` seconds with their activity status (`active` / `on_hold` / `inactive`), so the interface can age vehicles that went silent |
+| `ws/connection/` | `ConnectionConsumer` | Serial/ESP32 link status. Only does something when `serial_available` is on in *config.ini* |
+| `ws/receive/` | `ReceiveCommandConsumer` | Commands over serial. Also dormant unless the serial link is enabled |
+
+So, when our Javascript is loaded, it opens all four, each one to a specific Consumer, accessing a specific URL, inside our ws_urlpatters.
 ```javascript
 // Javascript stablishing new connection
-var socket = new WebSocket('ws://localhost:8000/ws/connection/');
+var receivePostSocket = new WebSocket('ws://localhost:8000/ws/update-info/');
 ```
-When this command is read, the ConnectionConsumer class is called and a connection is initated.
+When this command is read, the PostConsumer class is called and a connection is initated.
 Our Consumers are inside ***connections/consumers_wrappers/*** and a new one can be created, inheriting WebsocketConsumer or AsyncWebsocketConsumer, depending on it's functionality. You can substitute three main methods:
 <!--ts-->
 * **connect**: called when the specific url is accessed and start a dedicated connection with self.accept. This is the only method you NEED to override.
@@ -213,6 +241,8 @@ Creating the new path can be done adding a new path to ws_urlpatters list:
 ws_urlpatterns = [
   path('ws/connection/', ConnectionConsumer.as_asgi()),
   path('ws/receive/', ReceiveCommandConsumer.as_asgi()),
+  path('ws/update-info/', PostConsumer.as_asgi()),
+  path('ws/update-periodically/', UpdatePeriodcallyConsumer.as_asgi()),
   path('ws/new-socket/', NewConsumer.as_asgi()),
 ]
 ```
@@ -231,10 +261,27 @@ To load a Javascript file in a template, the logic is the same, as long this Jav
 ```python
 STATIC_URL = '/static/'
 ```
-Our ***index.html*** home page template loads ***gmap.js***, responsible for Google Map's virtual map and ***main.js***, responsible for starting websockets connections with the back-end and the main button's logic.
+Our ***index.html*** home page template loads three things from `static/connections/`:
+
+* ***vendor/leaflet/*** — the [Leaflet](https://leafletjs.com/) map library, served locally so the station works without reaching a CDN.
+* ***js/gmap.js*** — the map layer: creates the Leaflet map over OpenStreetMap tiles, holds the vehicle glyphs (one SVG per vehicle type) and exposes `gmap.newMarker()` to draw or move a vehicle. The file keeps its old name from the Google Maps era so the rest of the code did not have to change. The map itself needs internet for the tiles; everything else (fonts, icons, Leaflet) is served from this repository.
+* ***js/main.js*** — opens the WebSocket connections with the back-end, keeps the per-vehicle state (`droneInfo`), and renders the three panels of the interface.
+
+The map opens centred on *AbraDF* (the SITL home used across the project, in Brasília). A layer control in the top-right corner switches the basemap between **Claro** (OpenStreetMap desaturated in CSS, the default), **OSM** and **Topo**; adding another provider is one more entry in the `BASEMAPS` object of *gmap.js*.
+
+The interface is a single page with a **rail** on the left, a **panel** and the **map**. The rail switches the panel between:
+
+| Panel | What it does |
+|---|---|
+| **Fleet** | One row per vehicle with name, movement state, altitude, battery and arming readiness. Clicking a row selects it: the telemetry readout below shows that vehicle and the command buttons target it. The `TARGET` line above the buttons always says who will receive the next click. The default target is *All drones* (broadcast) |
+| **Scripts** | Upload a `.py` script to the vehicle, list the scripts stored there, execute one, see what is running and stop it. The running list is polled every 5 s while this panel is open, and each `Stop` button targets the vehicle of that row, not the fleet selection |
+| **Logs** | Every command sent (`TX`) and every answer received (`RX`), with JSON highlighted. Position pings and the running-scripts poll are deliberately not logged. The badge on the rail icon counts messages that arrived while another panel was open, red if one of them was an error |
+
+The visual identity (colours, typography, why the chrome is dark and the map is light) is documented in [DESIGN.md](DESIGN.md).
+
 To start a websocket connection, you have to create a new object, sending an available URL in the routing schema (see Routing/Consumers topic).
 ```javascript
-var socket = new WebSocket('ws://localhost:8000/ws/connection/');
+var receivePostSocket = new WebSocket('ws://localhost:8000/ws/update-info/');
 ```
 This object has methods to interact with the socket connection. Here are the main:
 <!--ts-->
@@ -263,25 +310,68 @@ socket.onmessage = function(msg) {
 <!--te-->
 
 ## External Communication
-The primary purpose of this framework is to exchange information with other devices. Currently, there are implemented two ways for external connections.
+The primary purpose of this framework is to exchange information with other devices. The way it is done today is **HTTP**: vehicles push telemetry to the station with POST requests, and the station sends commands back with GET/POST requests against each vehicle's own API. The station never speaks MAVLink; that is the job of [`vehicle_api`](https://github.com/beswarmdev/vehicle_api), one process per vehicle.
 
-The first way is to plugin an ESP32 microcontroller to the framework's machine. This microcontroller should be able to detect other devices that receive and send information to them. Our framework can establish a UART connection with a plugged ESP32 microcontroller, receive everything sent via serial, and send commands via serial, making the microcontroller responsible for retransmitting the command. In order to accept a connection with an ESP32 microcontroller, it is necessary to insert the correct UART Port and baud rate inside config.ini. The SerialConnection class, from /connections/serial_connector.py, is instantiated when javascript starts a WebSocket connection of this type. The instantiated object keeps trying connection with the UART Port. Once a microcontroller is plugged in, the interface indicates this change, and you can exchange information through the ESP32 microcontroller.
+There is also a second, optional path: a serial link to an ESP32 microcontroller plugged into the station's machine, which retransmits messages over UART. It is **disabled by default** (`serial_available = false` in config.ini) and the interface does not send commands through it; it is kept for projects that need it and is described in the **Communicating with external devices** section below.
 
-Another way to communicate with our framework is with POST requests. A device, an UAV (drone) per se, wants to send its location to our ground station. This can be achieved with a POST request to the specific ground station URL.
+A device, an UAV (drone) per se, wants to send its location to our ground station. This can be achieved with a POST request to the specific ground station URL (`/update-info/` by default), with **form-encoded** fields (the view reads `request.POST`, not a JSON body). This is what `vehicle_api` sends on every tick of `--gradys_gs_rate`:
 
 ```python
-json_tmp = {"id": uav_id, "lat": targetpos.lat, "lng": targetpos.lng, "alt": targetpos.alt, "ip": args.uav_ip + ':' + flask_port}
+telemetry = {
+  "id": 1,                  # vehicle id (the MAVLink sysid); used as the key in the fleet list
+  "type": 102,              # 102 = position update (see [internal-protocol] in config.ini)
+  "seq": 30,
+  "lat": "-15.840081",
+  "lng": "-47.926642",
+  "alt": "12.4",            # metres above home
+  "ground_speed": "3.1",    # m/s
+  "air_speed": "3.3",       # m/s
+  "heading": "87.0",        # degrees; the map icon rotates to it
+  "battery_percent": "82",
+  "ready_to_arm": True,     # the view compares the string to 'True'
+  "device": "uav",          # vehicle type, free-form string; decides the map icon
+  "ip": "127.0.0.1:8001/",  # where the station sends commands back to. MUST end with '/'
+}
 
-r = requests.post(path_to_post, data=json_tmp)
+r = requests.post("http://127.0.0.1:8000/update-info/", data=telemetry)
 ```
 
-Note that the device should attach, on the message, it's own IP and PORT, so our framework can send commands back to it. The specific URL, to receive POSTs, is mapped to a view. So, when the device send it's location on body's request, the post_to_socket view receive the request and extracts the information from it's body. We want to send this information to our interface and also to save it in the log file. Who is responsible for both actions is the PostConsumer, inside /connections/consumers_wrapper/post_consumer.py. This way, the post_to_socket view needs to send the message to PostConsumer, getting an instance of this class and calling this Class function receive_post(message).
+`id`, `type` (must be `102`), `lat`, `lng` and `device` are required for the message to be treated as a position update; the other telemetry fields are optional and show as `—` in the fleet list when missing. The station builds command URLs as `"http://" + ip + endpoint`, and the endpoints in `[commands-list]` have no leading slash, so **`ip` has to end with a slash** (`127.0.0.1:8001/`); without it the station would request `http://127.0.0.1:8001telemetry/gps`. `vehicle_api` already sends it that way.
+
+### Vehicle types and what the map shows
+The `device` field is not an enum on either side. The station normalises it (lower-case, letters only) and looks for a known word in it, so `Boat`, `boat-2` and `UAV_alpha` all find the right icon:
+
+| `device` contains | Icon | Shown in the fleet list? |
+|---|---|---|
+| `uav`, `copter`, `quad`, `drone` | quadcopter | yes |
+| `plane`, `fixedwing`, `vtol` | fixed wing | yes |
+| `boat`, `usv`, `ship`, `barco` | boat hull, seen from above | yes |
+| `sub`, `rov`, `uuv`, `submarine` | ROV, seen from above | yes |
+| `ugv`, `rover`, `car` | wheeled chassis | yes |
+| `intruder`, `target`, `contact`, `alvo` | **red** boat, labelled `INTRUDER` | **no** |
+| anything else | generic marker with a heading notch | yes |
+
+An **intruder** is deliberately kept out of the fleet list: it is a *detection* reported by someone else, not a vehicle you can command, so it has no battery, no link and no buttons. It is drawn on the map only.
+
+Every marker carries three independent signals, in three independent channels, so no channel means two things:
+
+| Channel | Meaning | Source |
+|---|---|---|
+| **Colour** | the link: green while the vehicle keeps reporting, amber after `seconds_to_device_be_on_hold`, red after `seconds_to_device_be_inactive` | `[list-updater]` in config.ini |
+| **Solid / hollow** | moving or not: `flying`/`grounded` from altitude for aircraft, `under way`/`stopped` from ground speed for boat, ROV and rover, since altitude says nothing about them | telemetry |
+| **Faded, dashed ring** | the station stopped hearing from this vehicle; the label says for how long | time of last message |
+
+Battery and arming readiness are shown in the fleet list, not on the marker. Note that the server's `active` / `on_hold` / `inactive` status measures **silence**, not the aircraft's state: an "inactive" drone is one we stopped hearing from, not one that landed.
+
+### How a POST becomes a marker
+The specific URL, to receive POSTs, is mapped to a view. So, when the device send it's location on body's request, the post_to_socket view receive the request and extracts the information from it's body. We want to send this information to our interface and also to save it in the log file. Who is responsible for both actions is the PostConsumer, inside /connections/consumers_wrapper/post_consumer.py. This way, the post_to_socket view needs to send the message to PostConsumer, getting an instance of this class and calling this Class function receive_post(message).
 
 ```python
 post_consumer_instance = get_post_consumer_instance()
 await post_consumer_instance.receive_post(new_dict)
 ```
 
+### Sending commands to a device
 Sending a message to an external device is also done by Consumers. When a command button is activated on the interface, the main.js uses the async method socket.send(), to transmit the command direct to the Consumer (back-end). The message received from the main.js, contains which device or group of devices it should be sent. It also contains the ID of the external devices that will receive the command. The first step is to search on the registered device's list for the address (IP) of the devices.
 
 ```python
@@ -290,18 +380,34 @@ device_to_send_list = get_device_from_list_by_id(device_receiver_id)
 
 There is a list on config.ini mapping the commands code (integer) to a specific endpoint, that should be added to the IP+Port of the external device.
 
-```html
+```ini
 [commands-list]
-20 = position_absolute_json,get
-22 = position_relative_json,get
-24 = auto,get
-26 = run_experiment,get
-28 = set_auto,get
-30 = rtl,get
-32 = takeoff_and_hold,get
+20 = telemetry/gps,get
+22 = telemetry/ned,get
+24 = command/arm,get
+26 = command/takeoff,get
+28 = command/land,get
+30 = command/rtl,get
+42 = mission/list-scripts,get
+44 = mission/upload-script,post
+46 = mission/execute-script,post
+48 = mission/running-scripts,get
+50 = mission/stop-script/,post
 ```
 
-The list contains the endpoint and the HTTP request type, if it is a GET or POST request.
+The list contains the endpoint and the HTTP request type, if it is a GET or POST request. The endpoints are the ones exposed by `vehicle_api`; its Swagger page (`http://<vehicle-ip>:<port>/docs`) lists them all. What each code does on the interface:
+
+| Code | Button | Notes |
+|---|---|---|
+| 20, 22 | `GPS`, `NED` | one-shot telemetry request, the answer goes to the log |
+| 24, 26 | `Arm`, `Takeoff` | |
+| 28 / 29 | `Land` toggle | 28 starts a task that keeps sending `land`; 29 cancels it (see `[checkbox-commands]`) |
+| 30 / 31 | `RTL` toggle | same pattern as Land |
+| 42 | refresh script list | answer type 42 fills the dropdown |
+| 44 | `Submit script` | the file is sent base64-encoded and re-posted to the vehicle as multipart |
+| 46 | `Execute` | body `{"script_name": ...}` |
+| 48 | running scripts | polled every 5 s while the Scripts panel is open; answer type 50, never logged |
+| 50 | `Stop` | body `{"script_name": ...}`, targets only the vehicle of that row; answer type 52 |
 
 With the address complete, the command will be sent via HTTP request.
 
@@ -314,7 +420,7 @@ if command_path_list[1] == 'get':
   task = asyncio.create_task(self.send_get_specific_device(url, id, device['device']))
 else:
   # POST request
-  task = asyncio.create_task(self.send_post_specific_device(url, json_to_send))
+  task = asyncio.create_task(self.send_post_specific_device(url, device['device'], id, json_to_send))
 self.async_tasks.append(task)
 ```
 
@@ -323,12 +429,12 @@ Depending on the type of the request, the command will be sent and an asynchrono
 ## Data persistence
 One of the main features of this project is the data persistence of every event that occurred during the experiments. Log files are generated, when starting the application, and filled in as messages are received, errors are caught, commands are sent, and other events that are of importance to the experiment.
 
-To generate the .log files, the logging package, for Python, is used. Inside /connections/utils/logger.py there is a class Logger, responsible for the persistent logic. It's possible to extend and copy this class to other modules, for example, at the uav_simulator/ module that has this class with different logic.
+To generate the .log files, the logging package, for Python, is used. Inside /connections/utils/logger.py there is a class Logger, responsible for the persistent logic. It's possible to extend and copy this class to other modules.
 
-When the server start, a .log file is created, inside the folder specified by the Logger's path variable, and the file's name is composed by the module name followed by the date created. The example above represents a .log file created inside the uav_simulator module at 25/01/2022 08:18:40.
+When the server start, a .log file is created, inside `connections/LOGS/`, and the file's name is composed by a prefix (`post` by default, the `logging_for` argument of `Logger`) followed by the date created. The example below represents a .log file created by the station at 25/01/2026 08:18:40. These files are git-ignored.
 
 ```html
-uav_simulator-2022-01-25-08-18-40.log
+post-2026-01-25-08-18-40.log
 ```
 
 To fill this file, it must be inserted in code calls of the methods from the Logger class, according to it's needs. The example above includes the code from the PostConsumer class, inside the method to handle a external message received.
@@ -346,12 +452,12 @@ The logger object is global and already instantiated. Two log methods are called
 The .log file format is specified inside the Logger class, using the syntax accepted by the Formatting class, form logging package. For more information on how to format the .log file, https://docs.python.org/3/library/logging.html#logging.Formatter.
 
 ```html
-2021-12-12 20:58:32,706; uav-21; receive-info; {'id': 21, 'type': 102, 'seq': 30, 'lat': -15.840081, 'lng': -47.926642, 'alt': -0.03, 'device': 'uav', 'ip': 'http://127.0.0.1:5071/', 'method': 'post', 'time': '2021-12-12T20:58:32.706792', 'status': 'active'}
+2026-08-28 18:34:18,894; uav-1; receive-info; {'id': 1, 'type': 102, 'seq': 1446, 'lat': -15.8400809, 'lng': -47.926642, 'alt': 14.998, 'ground_speed': 0.024, 'air_speed': 0.024, 'heading': 29.0, 'battery_percent': 82.0, 'ready_to_arm': True, 'device': 'uav', 'ip': '172.20.196.85:8001/', 'method': 'post', 'time': '2026-08-28T18:34:18.894268', 'status': 'active'}
 
-2022-01-25 20:58:50,365; gs; send-get; http://127.0.0.1:5071/rtl
+2026-08-28 18:35:02,101; gs; send-get; http://172.20.196.85:8001/telemetry/gps
 ```
 
-The example above has two messages, formatted with the date of the event, who triggered the event, where it was triggered and the message itself.
+The example above has two messages, formatted with the date of the event, who triggered the event (`<device>-<id>` for a vehicle, `gs` for the station), where it was triggered (`receive-info`, `send-get`, `send-get-response`, `send-post`, `send-post-response`, `upload-post`) and the message itself.
 
 ## Sequence Diagram
 The sequence message diagram below represents the messages flow between external devices and the main modules from this framework.
@@ -366,7 +472,7 @@ Important things to notice are:
 
 * There is a Consumer in charge to keep the persistant device list, with the registred devices, inside ***/connections/consumers_wrapper/update_periodically.py***. In this Consumer, there is a task to update the activity status of the devices on the list, every X seconds, specified at *config.ini*. This is represented on the third group of messages flow in the diagram above.
 
-* There is the possibility to create checkbox buttons, that will trigger a constant task, while the checkbox is pressed. This is represented on the fourth group of messages flow in the sequence diagram.
+* There is the possibility to create toggle buttons (`Land` and `RTL` on the interface), that will trigger a constant task while the toggle is engaged. The diagram still calls them "checkbox", which is what they were before the current interface. This is represented on the fourth group of messages flow in the sequence diagram.
 <!--te-->
 
 
@@ -374,12 +480,17 @@ Important things to notice are:
 Another important functionality in this framework is the possibility to send commands, through the interface, to available devices.
 We can register a new button inside the template, create a onClick callback function and send the command via websocket to Django (back-end).
 <!--ts-->
-* Create new button in ***/templates/index.html***
+* Create new button in ***/templates/index.html***, inside one of the `.cmd-group` blocks of the Fleet panel (or a new group, same markup)
 ```html
-<input class="button" id="new-button" type="button" value="New Command">
+<div class="cmd-group">
+  <span class="cmd-label">My group</span>
+  <div class="cmd-row">
+    <button type="button" class="btn" id="new-button">New Command</button>
+  </div>
+</div>
 ```
 
-* Register an onclick function, in ***/static/connections/main.js***
+* Register an onclick function, in ***/static/connections/js/main.js***
 ```javascript
 var newCommandNumber = 40
 
@@ -387,23 +498,35 @@ document.querySelector('#new-button').onclick = function(e) {
   sendCommand(newCommandNumber);
 };
 ```
-* Send to the back-end, when button is clicked
+* Send to the back-end, when button is clicked. `sendCommand` already exists in *main.js*; its real signature is:
 ```javascript
-function sendCommand(type) {
-  jsonToSend = {id: 1, type: type}
+function sendCommand(cmdNumber, buttonType = "default", data = {}, receiverOverride) {
+  var jsonToSend = {
+    id: 1,                                    // id of the ground station
+    type: cmdNumber,                          // the command code (see [commands-list])
+    button_type: buttonType,                  // "default" | "checkbox" | "upload"
+    receiver: receiverOverride || selectedId, // 'all' or the id selected in the fleet list
+    data: data                                // body of the POST, when the command is a POST
+  };
   // ...
-  if (socket.readyState == WebSocket.OPEN) {
-    socket.send(jsonToSend);
+  if (receivePostSocket.readyState == WebSocket.OPEN) {
+    receivePostSocket.send(JSON.stringify(jsonToSend));
   }
 }
 ```
 <!--te-->
-Notice that the socket object must be instatiated already, and the connection 'OPEN'.
+Notice that the socket object must be instatiated already, and the connection 'OPEN'. Buttons inside `#commands` are disabled automatically while the link is down or no vehicle is connected, and the reason is written above them.
 The corresponding Consumer will receive the message and handle, acording to it's command type.
 
-A button can contain a different type, as checkbox. This button will have a different logic then a regular button. A specific thread will handle the command, repeating until the checkbox is unmarked. Marking a checkbox will result on the creation of a thread, unmarking it will cancel this thread. In order to create a checkbox button, you need to change the type to type="checkbox", on index.html, and pass the argument "checkbox" when creating a event handler on main.js: sendCommand(30, "checkbox");
+A button can also be a **toggle**, like `Land` and `RTL`. Engaging it sends one code and the back-end starts a task that keeps re-sending that command; disengaging sends the next code (`code + 1`) and the task is cancelled. The pairs are declared in *config.ini* under `[checkbox-commands]` (`keep_sending = 28,30`, `stop_sending = 29,31`). To create one, give the button the `btn-toggle` class and an `aria-pressed` attribute, and bind it with the helper that already exists in *main.js*:
+```html
+<button type="button" class="btn btn-toggle" id="hold" aria-pressed="false">Hold</button>
+```
+```javascript
+bindToggle('hold', 32, 33);   // 32 engages, 33 disengages; add 32 to [commands-list] and to [checkbox-commands]
+```
 
-The button type will be insert inside the JSON message, sent by main.js to the corresponding Consumer. So the Consumer will know this is not a regular command, and will create or cancel a thread.
+The button type (`"checkbox"`) will be insert inside the JSON message, sent by main.js to the corresponding Consumer. So the Consumer will know this is not a regular command, and will create or cancel a task.
 
 ### Command button logic
 You already have a button on interface that sends a command, in this case '40', to a Consumer. This Consumer will be in charge to the command logic.
@@ -411,28 +534,32 @@ You already have a button on interface that sends a command, in this case '40', 
 Inside the <i>'receive'</i> method of this Consumer's Class, it's up to you to write the command's logic, according to your communication protocol.
 </br>
 When handling with **HTTP requests**, you can insert the new command to  the command's list, inside config.ini file. The Consumer can iterate this list and check the command received, mapping to the right endpoint.
-```javascript
+```ini
 [commands-list]
-20 = position_absolute_json,get
-22 = position_relative_json,post
-32 = takeoff_and_hold,get
+20 = telemetry/gps,get
+22 = telemetry/ned,get
+24 = command/arm,get
 ...
 ```
 This list contains a number as the key to the corresponding endpoint address, that will receive the HTTP request. The type of request is represented after the comma, with no spaces. If your communication is using HTTP requests and this list, your new list, with the new command, should look like this:
-```javascript
+```ini
 [commands-list]
-20 = position_absolute_json,get
-22 = position_relative_json,post
-32 = takeoff_and_hold,get
+20 = telemetry/gps,get
+22 = telemetry/ned,get
+24 = command/arm,get
 ...
 40 = new_endpoint,get
 ```
 
-## Communicating with external devices
-The main purpose of this framework is to exchange information with other devices. Currently there is implemented two ways for external connections.
+The endpoint is appended to the `ip` the vehicle reported in its telemetry (`http://<ip><endpoint>`, with no separator added), so it must include the full path the vehicle's API expects, without a leading slash, and the vehicle's `ip` must end with one. For a POST, whatever the interface passed as `data` to `sendCommand` is sent as the JSON body. Remember that *config.ini* is read once at import time: **restart the server** after changing it, the autoreloader only watches `.py` files.
 
-### Serial Connection
-The first way is plugin a ESP32 microcontroller to the framework's machine. This microcontroller should be able to detect other devices, receive and send information to them.
+## Communicating with external devices
+The main purpose of this framework is to exchange information with other devices. There are two implemented ways for external connections: HTTP, which is the one in use, and serial, which is optional and off by default.
+
+### Serial Connection (optional, disabled by default)
+This path is kept for projects that need it, but it is not part of the current vehicle workflow: `serial_available` is `false` in *config.ini*, so `SerialConnection` is never instantiated, and the interface does not send commands through the serial socket.
+
+The idea is plugin a ESP32 microcontroller to the framework's machine. This microcontroller should be able to detect other devices, receive and send information to them.
 Our framework can stablish an UART connection with a plugged ESP32 microcontroller, receive everything is sent via serial and send commands via serial, making the microcontroller responsible for retransmiting the command.
 In order to accept a connection with a ESP32 microcontroller, you need to insert the correct UART Port and baudrate, inside ***config.ini*** (see below for **Changing the code** topic and **Serial connection** subtopic).
 The ***SerialConnection*** class, from */connections/serial_connector.py*, is instantiated when javascript starts a websocket connection of this type. The instantiated object keeps trying connection with the UART Port. Once a microcontroller is plugged, the interface indicates this change, and you are able to exchange information through the ESP32 microcontroller.
@@ -465,22 +592,27 @@ Another way to comunicate with nodes of the network is receiving/sending informa
 A device can send a POST request to http://127.0.0.1:8000/update-info/ (or IP/PORT running the application). Notice that a device should send inside the message it's own IP/PORT, so the application can send commands via HTTP requests.
 This structure is described with more details below, on the Project Struct topic.
 
-Inside the *config.ini* file, below the [post] tag, you can change some of the protocol's variables:
-```python
-[post]
-# Default ip/port of django's server.
-# If started on a different configuration, you need to change it here.
-ip = http://127.0.0.1:8000/
+Inside the *config.ini* file, below the [server] and [post] tags, you can change some of the protocol's variables:
+```ini
+[server]
+# Address of django's server, handed to the page so the browser knows where
+# to open its WebSockets. If started on a different configuration, change it here.
+ip_groundstation_server = http://127.0.0.1:8000/
 
+[internal-protocol]
+# 'type' value of a telemetry message that carries a position (see main.js)
+position_command = 102
+
+[post]
 # Endpoint that'll receive POST requests with device's information
 path_receive_info = update-info/
 ```
 
 ### List of devices updater
 The application saves the latest messages of unique devices in a list, inside the *update_periodically_consumer.py*, for each execution. From time to time, it's sent to the front-end, via web-socket, with the activity status of each device. A device can be active, on hold and inactive, depending on the interval of it's last message.
-These variables can be adjusted in the *config.ini* file, below the [list-updater] tag:
-```python
-[post]
+These variables can be adjusted in the *config.ini* file, below the [list-updater] tag. On the interface, `on_hold` turns the marker and the fleet row amber and `inactive` turns them red, with a dashed ring and a "silent for N s" label:
+```ini
+[list-updater]
 # The amount of seconds to a device be considered 'inactive'
 seconds_to_device_be_inactive = 50
 
@@ -500,11 +632,14 @@ update_delay = 20
     ├── connections         # Main app folder
     ├── static              # Static js, css, images files
     ├── templates           # Files with template language (html)
-    ├── uav_simulator       # Logic to run Ardupilot SITL simulator 
+    ├── uav_simulator       # LEGACY: Flask + pymavlink simulator from 2022, see note below
     ├── config.ini          # Contains project's adjustable parameters
     ├── manage.py           # Django’s command-line utility for administrative tasks
     ├── requirements.txt    # All packages and versions required (Windows and Linux)
+    ├── DESIGN.md           # Visual identity: palette, typography, layout decisions
     └── README.md
+
+> **`uav_simulator/` is not the simulator to use.** It predates `vehicle_api`, speaks a different set of endpoints (`/auto`, `/rtl`, port 5071) and expects an ArduPilot checkout at `../../sitl_sim`. It does not talk to the current station. To simulate a vehicle, run `vehicle-api --simulated true` from the [`vehicle_api`](https://github.com/beswarmdev/vehicle_api) repository, which drives ArduPilot SITL for you.
 
 We will open the folders that require more attention:
 
@@ -515,7 +650,10 @@ This is the main app's folder, with the necessary tools to allow connections and
     ├── ...             
     ├── connections
     |   ├── consumers_wrapper   # Folder with all websocket consumers
-    |   ├── LOGS                # Stores all .log files generated
+    |   |    ├── post_consumers.py               # Telemetry in, commands out (the main one)
+    |   |    ├── update_periodically_consumer.py # Device list and activity status
+    |   |    └── serial_consumers.py             # ESP32 serial link (optional)
+    |   ├── LOGS                # Stores all .log files generated (git-ignored)
     |   ├── utils               # Auxiliary tools
     |   ├── ...
     |   ├── routing.py          # Paths for websocket connections
@@ -548,8 +686,12 @@ In the **templates files**, can be used the static template tag to build the URL
     ├── ...             
     ├── static
     |   ├── connections   # Folder to separate the main app's static files
-    |   |    ├── css      # All css used inside connections
-    |   |    ├── images   # All images used in the project
-    |   |    ├── js       # All javascript files
-        └──
+    |   |    ├── css      # connection.css: the whole interface, tokens at the top
+    |   |    ├── fonts    # IBM Plex Sans / Mono, self-hosted (woff2) so the station works offline
+    |   |    ├── images   # PNG assets. Map icons are now inline SVG in gmap.js; premadeIcons/
+    |   |    |            # (numbered pins) and uavIcons/ are no longer referenced by the code.
+    |   |    |            # vehicles/ holds Mission Planner PNGs (GPL-3.0), used only if
+    |   |    |            # ICON_STYLE in gmap.js is switched to 'missionplanner'.
+    |   |    ├── js       # gmap.js (map + vehicle glyphs) and main.js (sockets, panels, commands)
+    |   |    └── vendor   # Leaflet 1.9, served locally
     └── ...
