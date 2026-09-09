@@ -955,15 +955,6 @@ input[type="file"] { display: none; }
 
 /* Sits clear of the 44px icon box so neighbouring labels in a tight formation
    collide less, and never under the selection ring. */
-/* Mission Planner style: raster PNGs, so no fill/stroke tokens apply — the
-   colour is baked into the file and therefore cannot carry flight state. */
-.veh-png {
-  width: 34px;
-  height: 34px;
-  object-fit: contain;
-  filter: drop-shadow(0 1px 2px rgb(0 0 0 / .55));
-}
-
 .veh-id {
   position: absolute;
   top: 38px;

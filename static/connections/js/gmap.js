@@ -97,34 +97,6 @@ var VEHICLE_GLYPHS = {
     '<path class="nose" d="M12 3.4 L14.4 8.2 L9.6 8.2 Z"/>',
 };
 
-// ---------------------------------------------------------------------------
-// Icon style. Switch this to compare the two sets on the running station.
-//
-//   'svg'           — drawn here: one visual language, colour from the tokens
-//                     (so it means flight state), sharp at any zoom, any id.
-//   'missionplanner'— the PNGs from ArduPilot's own GCS.
-//
-// NOTE on 'missionplanner': those files are GPL-3.0. Fine for evaluating locally,
-// but see DESIGN.md before shipping them — this project declares no licence and
-// its sibling (gradys-sim-nextgen) is MIT.
-// ---------------------------------------------------------------------------
-var ICON_STYLE = 'svg';
-
-var MP_ICONS = {
-  copter: 'quad2.png',
-  plane:  'plane2.png',
-  boat:   'boat.png',
-  sub:    'sub.png',
-  ugv:    'rover.png',
-  generic:'quad2.png',
-};
-
-// Each drawing has its own idea of where "forward" is; this brings them all to
-// nose-north. Measured against north: only plane2 is drawn pointing north-west.
-var MP_ROTATION_OFFSET = {
-  copter: 0, plane: 45, boat: 0, sub: 0, ugv: 0, generic: 0,
-};
-
 // vehicle_api sends whatever --custom_device_name says, as a free-form string:
 // it is not an enum, so "Boat", "boat-2" and "barco" are all things a user can
 // legitimately type. Matching is therefore normalised and substring-based, and
@@ -299,23 +271,13 @@ class GroundStationMap {
     var airborne = isAirborne(info, deviceType);
     var selected = String(this.selectedId) === String(id);
 
-    var key = glyphKey(deviceType);
     var intruder = isIntruder(deviceType);
-    var body;
 
-    if (ICON_STYLE === 'missionplanner' && !intruder) {
-      var deg = (rot === null ? 0 : rot) + (MP_ROTATION_OFFSET[key] || 0);
-      body =
-        '<img class="veh-body veh-png" src="/static/connections/images/vehicles/' +
-        MP_ICONS[key] + '"' +
-        (rot === null ? '' : ' style="transform:rotate(' + deg + 'deg)"') + '>';
-    } else {
-      body =
-        '<svg class="veh-body" viewBox="0 0 24 24"' +
-        (rot === null ? '' : ' style="transform:rotate(' + rot + 'deg)"') + '>' +
-        glyphFor(deviceType) +
-        '</svg>';
-    }
+    var body =
+      '<svg class="veh-body" viewBox="0 0 24 24"' +
+      (rot === null ? '' : ' style="transform:rotate(' + rot + 'deg)"') + '>' +
+      glyphFor(deviceType) +
+      '</svg>';
 
     if (intruder) {
       // Red, and labelled in words. Red alone would be ambiguous — one of our
