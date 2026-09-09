@@ -690,8 +690,6 @@ In the **templates files**, can be used the static template tag to build the URL
     |   |    ├── fonts    # IBM Plex Sans / Mono, self-hosted (woff2) so the station works offline
     |   |    ├── images   # PNG assets. Map icons are now inline SVG in gmap.js; premadeIcons/
     |   |    |            # (numbered pins) and uavIcons/ are no longer referenced by the code.
-    |   |    |            # vehicles/ holds Mission Planner PNGs (GPL-3.0), used only if
-    |   |    |            # ICON_STYLE in gmap.js is switched to 'missionplanner'.
     |   |    ├── js       # gmap.js (map + vehicle glyphs) and main.js (sockets, panels, commands)
     |   |    └── vendor   # Leaflet 1.9, served locally
     └── ...
