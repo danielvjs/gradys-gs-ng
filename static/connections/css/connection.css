@@ -53,6 +53,17 @@
   --caution:   #E8A317;   /* 7.6:1 */
   --critical:  #F0554B;   /* 4.8:1 */
 
+  /* Cores das marcações do operador. Separadas das três de condição de
+     propósito: aquelas significam estado do link e ninguém escolhe; estas são
+     categoria, e quem escolhe é quem está operando. Todas escuras o bastante
+     pra ler sobre o basemap dessaturado. */
+  --mark-red:    #E03A30;
+  --mark-amber:  #D98200;
+  --mark-green:  #2E9E55;
+  --mark-cyan:   #1E88A8;
+  --mark-violet: #7A57C9;
+  --mark-slate:  #4A545C;
+
   --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
 
@@ -570,6 +581,12 @@ button, input, select { font: inherit; color: inherit; }
 .icon-btn svg { width: 18px; height: 18px; fill: currentColor; }
 .icon-btn:hover { color: var(--ink); background: var(--surface-2); }
 
+/* Same "engaged control" language as .btn-toggle[aria-pressed="true"]: while
+   marking mode is on, a click on the map does something it normally doesn't,
+   so the button that turns it on has to look unmistakably different, not just
+   hovered. */
+.icon-btn.is-active { color: var(--caution); background: var(--surface-3); }
+
 /* --- Forms ---------------------------------------------------------------- */
 .block { padding: var(--s-4); border-bottom: 1px solid var(--line); }
 
@@ -863,6 +880,80 @@ input[type="file"] { display: none; }
 .leaflet-control-layers label:hover { color: var(--ink); }
 .leaflet-control-layers-separator { border-top: 1px solid var(--line); }
 
+/* --- Aba Missão ------------------------------------------------------------
+   A tabela é a peça central: uma linha por drone, e a coluna de protocolo só
+   existe depois que a linha tem drone — porque a lista vem do drone, não da
+   interface. Uma lista fixa aqui mentiria sobre o que cada drone tem.
+   ------------------------------------------------------------------------- */
+.mission-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--t-sm);
+}
+
+.mission-table th {
+  text-align: left;
+  padding: var(--s-1) var(--s-2) var(--s-1) 0;
+  color: var(--ink-dim);
+  font-weight: 500;
+  font-size: var(--t-xs);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  border-bottom: 1px solid var(--line);
+}
+
+.mission-table td {
+  padding: var(--s-1) var(--s-2) var(--s-1) 0;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+.mission-table .select { width: 100%; min-width: 0; }
+
+/* O .btn-stop da lista de scripts não serve aqui: ele é posicionado por
+   grid-column, e dentro de uma célula de tabela não há grid pra posicionar. */
+.btn-sm {
+  min-height: 28px;
+  padding: var(--s-1) var(--s-2);
+  font-size: var(--t-sm);
+}
+
+.mission-state {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--ink-dim);
+}
+
+.mission-state[data-state="running"]   { color: var(--nominal); }
+.mission-state[data-state="returning"] { color: var(--caution); }
+.mission-state[data-state="unreachable"] { color: var(--critical); }
+
+/* Uma linha por drone, na ordem em que as respostas chegam. É o único lugar da
+   interface onde o erro cru do drone aparece inteiro — truncar aqui esconderia
+   exatamente o que o operador precisa ler. */
+.mission-feedback {
+  list-style: none;
+  margin: var(--s-3) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+
+.mission-feedback li {
+  padding: var(--s-1) var(--s-2);
+  background: var(--surface-2);
+  border-left: 2px solid var(--line);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--ink-dim);
+  word-break: break-word;
+}
+
+.mission-feedback li[data-ok="true"]  { border-left-color: var(--nominal); color: var(--ink); }
+.mission-feedback li[data-ok="false"] { border-left-color: var(--critical); color: var(--ink); }
+
 /* --- Vehicle markers -------------------------------------------------------
    Drawn as SVG at runtime instead of the 1224 pre-rendered PNGs. Shape from the
    vehicle type, colour from these tokens, id as text.
@@ -1004,6 +1095,48 @@ input[type="file"] { display: none; }
 /* The glyph loses its own shadow while on the plate — two shadows read as dirt */
 .veh.is-selected .veh-body { filter: none; }
 
+/* --- Marcações do operador ------------------------------------------------
+   Sem anel, sem estado, sem rotação — nada disso se aplica a um ponto que
+   alguém desenhou. Só forma, cor e um rótulo opcional.
+   ------------------------------------------------------------------------- */
+.mark {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+}
+
+.mark-body {
+  width: 30px;
+  height: 30px;
+  stroke: #14171A;
+  stroke-width: 1.8;
+  stroke-linejoin: round;
+  paint-order: stroke;
+}
+
+.mark[data-color="red"]    .mark-body { fill: var(--mark-red); }
+.mark[data-color="amber"]  .mark-body { fill: var(--mark-amber); }
+.mark[data-color="green"]  .mark-body { fill: var(--mark-green); }
+.mark[data-color="cyan"]   .mark-body { fill: var(--mark-cyan); }
+.mark[data-color="violet"] .mark-body { fill: var(--mark-violet); }
+.mark[data-color="slate"]  .mark-body { fill: var(--mark-slate); }
+
+.mark-body .nose { fill: #14171A; stroke: none; }
+
+.mark-label {
+  position: absolute;
+  top: 34px;
+  padding: 0 4px;
+  border-radius: var(--radius);
+  background: rgb(20 23 26 / .82);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
 /* --- Scrollbars ----------------------------------------------------------- */
 .pane-scroll::-webkit-scrollbar,
 #logs::-webkit-scrollbar { width: 10px; }
@@ -1032,4 +1165,49 @@ input[type="file"] { display: none; }
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
   }
+}
+
+/* --- Modal ---------------------------------------------------------------- */
+.modal {
+  position: fixed;
+  inset: 0;
+  /* .leaflet-top/.leaflet-bottom (leaflet.css) vão até 1000 — empatar com eles
+     faria o modal só ganhar por vir depois no DOM. 1200 garante por z-index. */
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  background: rgb(20 23 26 / .72);
+}
+
+.modal[hidden] { display: none; }
+
+.modal-box {
+  width: min(680px, 92vw);
+  background: var(--surface-1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  max-height: 88vh;
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  padding: var(--s-3) var(--s-4);
+  border-bottom: 1px solid var(--line);
+}
+
+.modal-title { font-size: var(--t-lg); font-weight: 500; margin: 0; }
+
+.modal-map { height: 320px; }
+
+.modal-foot {
+  padding: var(--s-3) var(--s-4) var(--s-4);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
 }

@@ -90,12 +90,57 @@ var VEHICLE_GLYPHS = {
     '<rect x="17.4" y="13.4" width="3.2" height="4.6" rx="1"/>' +
     '<path class="nose" d="M12 6.2 L13.9 9.4 L10.1 9.4 Z"/>',
 
+  // Um sensor fixo visto de cima: corpo, cúpula e duas ondas. Tudo preenchido,
+  // nunca traçado — o .veh-body pinta o fill com a cor da condição e usa o
+  // stroke como contorno grafite, então uma forma só de traço sairia grafite.
+  sensor:
+    '<rect x="9" y="11.5" width="6" height="9" rx="1.2"/>' +
+    '<circle cx="12" cy="8" r="3"/>' +
+    '<path d="M4.2 9.6a8 8 0 0 1 2.3-5.1l1.4 1.4a6 6 0 0 0-1.7 3.7z"/>' +
+    '<path d="M19.8 9.6a8 8 0 0 0-2.3-5.1l-1.4 1.4a6 6 0 0 1 1.7 3.7z"/>',
+
   // Anything the ground station does not recognise still gets a marker with a
   // heading notch, rather than being silently drawn as a drone.
   generic:
     '<circle cx="12" cy="12" r="7.4"/>' +
     '<path class="nose" d="M12 3.4 L14.4 8.2 L9.6 8.2 Z"/>',
 };
+
+// ---------------------------------------------------------------------------
+// Marcações do operador — não são dispositivos.
+//
+// Ninguém reporta uma marcação: uma pessoa desenhou ela no mapa. Por isso não
+// têm anel de link, nem estado, nem rumo, e ficam fora da lista de frota — o
+// mesmo argumento do intruder, e mais forte: um intruder ao menos foi detectado
+// por alguém.
+//
+// A cor aqui é livre justamente porque não há link pra ela contradizer.
+// ---------------------------------------------------------------------------
+var MARKING_GLYPHS = {
+  pessoa:
+    '<circle cx="12" cy="6.6" r="3.4"/>' +
+    '<path d="M12 11.2c-3.6 0-6.4 2.6-6.4 6.1v3.1h12.8v-3.1c0-3.5-2.8-6.1-6.4-6.1z"/>',
+
+  pessoas:
+    '<circle cx="16.4" cy="8.2" r="2.6"/>' +
+    '<path d="M16.4 11.4c-2.9 0-5.1 2.1-5.1 4.9v4.4h10.2v-4.4c0-2.8-2.2-4.9-5.1-4.9z"/>' +
+    '<circle cx="8" cy="7.4" r="3"/>' +
+    '<path d="M8 11.4c-3.2 0-5.7 2.3-5.7 5.4v4.3h11.4v-4.3c0-3.1-2.5-5.4-5.7-5.4z"/>',
+
+  // Losango com furo. Não é um pin de mapa porque o pin aponta pra baixo e
+  // sugere que o ponto está embaixo dele; aqui o marcador É o ponto, ancorado no
+  // centro. E nenhum glifo de veículo é losango, então não há como confundir.
+  interesse:
+    '<path d="M12 1.8 22.2 12 12 22.2 1.8 12z"/>' +
+    '<circle cx="12" cy="12" r="3.2" class="nose"/>',
+};
+
+var MARKING_KINDS = ['pessoa', 'pessoas', 'interesse'];
+
+// Seis cores, todas escuras o bastante pra ler sobre o basemap dessaturado, que
+// é o padrão (.basemap-muted). O significado de cada uma é do operador, não da
+// interface: a estação não sabe se vermelho quer dizer ameaça ou urgência.
+var MARKING_COLORS = ['red', 'amber', 'green', 'cyan', 'violet', 'slate'];
 
 // vehicle_api sends whatever --custom_device_name says, as a free-form string:
 // it is not an enum, so "Boat", "boat-2" and "barco" are all things a user can
@@ -108,6 +153,7 @@ var DEVICE_TO_GLYPH = {
   boat: 'boat', usv: 'boat', ship: 'boat', barco: 'boat', lancha: 'boat',
   sub: 'sub', uuv: 'sub', submarine: 'sub', submarino: 'sub', rov: 'sub',
   ugv: 'ugv', rover: 'ugv', car: 'ugv', terrestre: 'ugv',
+  sensor: 'sensor', sensores: 'sensor', estacao: 'sensor', station: 'sensor',
 };
 
 // Vehicles for which altitude says nothing about whether they are working:
@@ -115,6 +161,10 @@ var DEVICE_TO_GLYPH = {
 // For these, ground speed is the signal — otherwise they read as "grounded"
 // forever, which is both wrong and useless.
 var SURFACE_GLYPHS = ['boat', 'ugv', 'sub'];
+
+// Glifos sem rumo. Girar um sensor fixo pelo heading da telemetria mostraria
+// ruído de bússola como se fosse informação.
+var NON_ROTATING_GLYPHS = ['sensor'];
 
 // An intruder is not one of ours. It is a detection: something a drone saw and
 // reported, with no link to keep, no battery, no commands. It is drawn on the
@@ -128,6 +178,14 @@ function isIntruder(deviceType) {
 
 function normaliseDevice(deviceType) {
   return String(deviceType || '').toLowerCase().replace(/[^a-z]/g, '');
+}
+
+// O rótulo é texto digitado por uma pessoa e entra em innerHTML. Sem escapar,
+// um rótulo com < vira markup.
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
 }
 
 function glyphKey(deviceType) {
@@ -184,6 +242,10 @@ function isAirborne(info, deviceType) {
   if (!info) return true;
   if (info.armed === true) return true;             // if a backend ever sends it
 
+  // Um sensor fixo nunca está "no chão" no sentido que o marcador quer dizer
+  // (pousado, portanto inativo). Ele está instalado, que é o normal dele.
+  if (glyphKey(deviceType || info.device) === 'sensor') return true;
+
   if (SURFACE_GLYPHS.indexOf(glyphKey(deviceType || info.device)) !== -1) {
     var spd = parseFloat(info.groundspeed);
     return isNaN(spd) ? true : spd > SURFACE_MOVING_SPEED;
@@ -220,6 +282,7 @@ class MyMarker {
 class GroundStationMap {
   constructor() {
     this.markers = [];
+    this.markings = [];
     this.map = null;
     this.selectedId = 'all';
 
@@ -266,6 +329,7 @@ class GroundStationMap {
   // costs one more glyph, not another 1224 files.
   buildIcon(id, status, deviceType, heading, info) {
     var rot = isNaN(parseFloat(heading)) ? null : parseFloat(heading);
+    if (NON_ROTATING_GLYPHS.indexOf(glyphKey(deviceType)) !== -1) rot = null;
     var link = linkStateFrom(status);
     var cond = vehicleCondition(info, link);
     var airborne = isAirborne(info, deviceType);
@@ -353,6 +417,56 @@ class GroundStationMap {
     if (i === -1) return;
     this.map.removeLayer(this.markers[i].marker);   // Google: setMap(null)
     this.markers.splice(i, 1);
+  }
+
+  buildMarkingIcon(kind, color, label) {
+    var glyph = MARKING_GLYPHS[kind] || MARKING_GLYPHS.interesse;
+    var tone = MARKING_COLORS.indexOf(color) === -1 ? 'slate' : color;
+
+    return L.divIcon({
+      html:
+        '<div class="mark" data-color="' + tone + '">' +
+          '<svg class="mark-body" viewBox="0 0 24 24">' + glyph + '</svg>' +
+          (label ? '<span class="mark-label">' + escapeHtml(label) + '</span>' : '') +
+        '</div>',
+      className: 'veh-marker',      // reusa o reset que mata a caixa branca do Leaflet
+      iconSize: [40, 40],
+      iconAnchor: [20, 20],         // a marcação É o ponto, não fica acima dele
+    });
+  }
+
+  newMarking(id, lat, lng, kind, color, label) {
+    if (!this.map) return;
+    var key = 'mk-' + id;
+    var icon = this.buildMarkingIcon(kind, color, label);
+    var i = this.findMarkingIdIndex(key);
+
+    if (i === -1) {
+      var marker = L.marker([lat, lng], { icon: icon, title: label || kind });
+      this.markings.push(new MyMarker(key, marker));
+      marker.addTo(this.map);
+    } else {
+      this.markings[i].marker.setIcon(icon);
+      this.markings[i].marker.setLatLng([lat, lng]);
+    }
+  }
+
+  findMarkingIdIndex(key) {
+    return this.markings.findIndex(function (m) { return m.id === key; });
+  }
+
+  removeMarking(id) {
+    var i = this.findMarkingIdIndex('mk-' + id);
+    if (i === -1) return;
+    this.map.removeLayer(this.markings[i].marker);
+    this.markings.splice(i, 1);
+  }
+
+  // Um registrador, e não map.on('click') direto, porque a aba Missão também vai
+  // querer cliques (pra escolher a origem) sem tomar os cliques da aba Frota.
+  onMapClick(fn) {
+    if (!this.map) return;
+    this.map.on('click', function (e) { fn({ lat: e.latlng.lat, lng: e.latlng.lng }); });
   }
 }
 

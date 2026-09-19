@@ -10,6 +10,7 @@ var observableSocket = new WebSocket(`ws://${serverIp}:${serverPort}/ws/connecti
 var sendCommandSocket = new WebSocket(`ws://${serverIp}:${serverPort}/ws/receive/`);
 var receivePostSocket = new WebSocket(`ws://${serverIp}:${serverPort}/ws/update-info/`);
 var updateSocket = new WebSocket(`ws://${serverIp}:${serverPort}/ws/update-periodically/`);
+var missionSocket = new WebSocket(`ws://${serverIp}:${serverPort}/ws/mission/`);
 
 // Control if the log text autoscroll is available or not
 var autoScroll = true;
@@ -208,6 +209,12 @@ function switchPanel(name) {
   });
 
   setRunningPoll(name === 'scripts');
+  setMissionPoll(name === 'mission');
+
+  // O modo marcar só faz sentido com a UI de marcação (o form, o botão
+  // pressionado) à vista, no painel fleet. Sem isto, trocar de aba deixa o
+  // modo armado e um clique no mapa cria uma marcação sem aviso nenhum.
+  if (name !== 'fleet' && markingMode) setMarkingMode(false);
 }
 
 // Only the tabs switch panels. The rail also holds the panel toggle, which is a
@@ -506,17 +513,149 @@ function updateCommandAvailability() {
   if (!isLinkUp()) reason = 'Link down — commands cannot be sent.';
   else if (Object.keys(droneInfo).length === 0) reason = 'No drone connected to command.';
 
+  var target = droneInfo[selectedId];
+  // Um sensor aparece na frota (tem link pra vigiar) mas é fixo — não recebe
+  // comando de voo. 'all' fica de fora: a frota pode ter outros veículos
+  // comandáveis além do sensor, e bloquear tudo penalizaria eles também.
+  if (reason === '' && selectedId !== 'all' && target &&
+      glyphKey(target.device) === 'sensor') {
+    reason = 'Sensor não recebe comando de voo.';
+  }
+
   var note = document.getElementById('commands-blocked');
   note.textContent = reason;
   note.hidden = reason === '';
 
-  var target = droneInfo[selectedId];
   document.getElementById('cmd-target-name').textContent =
     selectedId === 'all' ? 'All drones' : (target ? droneName(target) : String(selectedId));
 
   document.querySelectorAll('#commands .btn').forEach(function(btn) {
     btn.disabled = reason !== '';
   });
+}
+
+
+// ===========================================================================
+// UI — marcações do operador
+// ===========================================================================
+// Uma marcação não é dispositivo: ninguém reporta ela, uma pessoa desenhou. Por
+// isso mora no Django e não na lista persistente de devices, e por isso fica
+// fora da lista de frota, que é a lista do que se pode comandar.
+
+var markings = {};
+var markingMode = false;
+
+function renderMarkingList() {
+  var list = document.getElementById('mark-list');
+  var ids = Object.keys(markings);
+  document.getElementById('mark-hint').hidden = ids.length > 0;
+  list.innerHTML = '';
+
+  ids.forEach(function (id) {
+    var m = markings[id];
+    // Mesma estrutura de .running-row (nome, botão, meta): o .btn-stop é
+    // posicionado por grid-column, então fora dessa linha ele não se coloca.
+    var li = document.createElement('li');
+    li.className = 'running-row';
+    li.innerHTML =
+      '<span class="running-name"></span>' +
+      '<button type="button" class="btn btn-stop" aria-label="Apagar marcação">Apagar</button>' +
+      '<span class="running-meta"></span>';
+    li.querySelector('.running-name').textContent = m.label || m.kind;
+    li.querySelector('.running-meta').textContent =
+      m.kind + ' · ' + m.lat.toFixed(5) + ', ' + m.lng.toFixed(5);
+    li.querySelector('button').addEventListener('click', function () {
+      deleteMarking(id);
+    });
+    list.appendChild(li);
+  });
+}
+
+function drawMarking(m) {
+  markings[m.id] = m;
+  gmap.newMarking(m.id, m.lat, m.lng, m.kind, m.color, m.label);
+}
+
+function loadMarkings() {
+  return fetch('/markings/')
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      (data.markings || []).forEach(drawMarking);
+      renderMarkingList();
+    })
+    .catch(function (e) {
+      appendLog('Marcações', 'Não foi possível carregar: ' + e, 'in');
+    });
+}
+
+function createMarking(lat, lng) {
+  var body = {
+    kind: document.getElementById('mark-kind').value,
+    color: document.getElementById('mark-color').value,
+    label: document.getElementById('mark-label').value,
+    lat: lat,
+    lng: lng,
+  };
+
+  fetch('/markings/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+    .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+    .then(function (res) {
+      if (!res.ok) throw new Error(res.d.error || 'erro desconhecido');
+      drawMarking(res.d);
+      renderMarkingList();
+    })
+    .catch(function (e) {
+      appendLog('Marcações', 'Falha ao marcar: ' + e.message, 'in');
+    });
+}
+
+function deleteMarking(id) {
+  fetch('/markings/' + id + '/', { method: 'DELETE' })
+    .then(function (r) {
+      if (!r.ok) throw new Error('status ' + r.status);
+      gmap.removeMarking(id);
+      delete markings[id];
+      renderMarkingList();
+    })
+    .catch(function (e) {
+      appendLog('Marcações', 'Falha ao apagar: ' + e.message, 'in');
+    });
+}
+
+function setMarkingMode(on) {
+  markingMode = on;
+  var btn = document.getElementById('mark-add');
+  btn.setAttribute('aria-pressed', markingMode ? 'true' : 'false');
+  btn.classList.toggle('is-active', markingMode);
+  document.getElementById('mark-form').hidden = !markingMode;
+  // O cursor é o único aviso de que o próximo clique no mapa vai criar algo.
+  document.getElementById('map').style.cursor = markingMode ? 'crosshair' : '';
+}
+
+document.getElementById('mark-add').addEventListener('click', function () {
+  setMarkingMode(!markingMode);
+});
+
+// gmap.initMap() só roda no DOMContentLoaded (veja o fim de gmap.js). Antes
+// disso gmap.map é null, e newMarking/onMapClick têm guarda `if (!this.map)
+// return` — silenciosa. Registrar o clique e carregar o que já existe cedo
+// demais faria o modo marcar nunca pegar e o GET de /markings/ ser descartado.
+function initMarkings() {
+  gmap.onMapClick(function (point) {
+    if (!markingMode) return;
+    createMarking(point.lat, point.lng);
+  });
+  loadMarkings();
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initMarkings);
+} else {
+  initMarkings();
 }
 
 
@@ -732,6 +871,362 @@ function setRunningPoll(active) {
 
 
 // ===========================================================================
+// UI — Missão (gradys-embedded)
+// ===========================================================================
+// A tabela é o estado da tela; o servidor não guarda nada. Cada linha é um
+// drone e o protocolo que ele vai rodar. A lista de protocolos da coluna 2 vem
+// do PRÓPRIO drone (GET /protocols) — nunca de uma lista escrita aqui, que
+// mentiria sobre o que aquele drone tem instalado.
+
+var missionRows = [];          // [{drone: '0'|'', protocol: ''}]
+var missionProtocols = {};     // drone id -> [nome, ...]
+var missionStates = {};        // drone id -> 'idle'|'loaded'|...|'unreachable'
+var missionFrame = null;       // {origin_gps_coordinates: [lat,lng,alt], x_axis_degrees: n}
+var missionPoll = null;
+var missionFile = null;        // {filename, content(base64)}
+
+function missionSend(payload) {
+  if (missionSocket.readyState !== WebSocket.OPEN) {
+    appendLog('Missão', 'Socket de missão fechado; comando não enviado.', 'in');
+    return;
+  }
+  missionSocket.send(JSON.stringify(payload));
+}
+
+function missionDroneIds() {
+  // Duas linhas podem apontar pro mesmo drone; sem dedup, upload/setup/
+  // start/stop mandariam o comando duas vezes pra ele.
+  var seen = {};
+  return missionRows.map(function (r) { return r.drone; })
+                    .filter(function (d) { return d !== ''; })
+                    .filter(function (d) {
+                      if (seen[d]) return false;
+                      seen[d] = true;
+                      return true;
+                    });
+}
+
+// --------------------------------------------------------------- a tabela
+
+function renderMissionRows() {
+  var tbody = document.getElementById('mission-rows');
+  tbody.innerHTML = '';
+
+  var fleetIds = Object.keys(droneInfo).sort(function (a, b) { return Number(a) - Number(b); });
+
+  missionRows.forEach(function (row, index) {
+    var tr = document.createElement('tr');
+
+    // Coluna 1 — drone. Começa vazia, e só lista quem reportou telemetria.
+    var tdDrone = document.createElement('td');
+    var selDrone = document.createElement('select');
+    selDrone.className = 'select';
+    // new Option(text, value) — não innerHTML: o id vem de droneInfo, mas o
+    // padrão é o mesmo por consistência com a coluna de protocolo abaixo, que
+    // é a que realmente importa (nome vindo de fora da estação).
+    selDrone.add(new Option('—', ''));
+    fleetIds.forEach(function (id) {
+      var opt = new Option('Drone ' + id, id);
+      opt.selected = row.drone === id;
+      selDrone.add(opt);
+    });
+    selDrone.addEventListener('change', function () {
+      row.drone = this.value;
+      row.protocol = '';
+      // Perguntar ao drone o que ELE tem. Só depois a coluna 2 pode ser
+      // preenchida — é o que "só deixar listar o que a API avisar" quer dizer.
+      if (row.drone !== '') missionSend({ action: 'protocols', ids: [Number(row.drone)] });
+      renderMissionRows();
+      renderMissionControls();
+    });
+    tdDrone.appendChild(selDrone);
+
+    // Coluna 2 — protocolo. Vazia e desabilitada enquanto não houver drone.
+    var tdProto = document.createElement('td');
+    var selProto = document.createElement('select');
+    selProto.className = 'select';
+    var known = missionProtocols[row.drone];
+    if (row.drone === '') {
+      selProto.innerHTML = '<option value="">escolha um drone</option>';
+      selProto.disabled = true;
+    } else if (!known) {
+      selProto.innerHTML = '<option value="">consultando…</option>';
+      selProto.disabled = true;
+    } else if (known.length === 0) {
+      selProto.innerHTML = '<option value="">nenhum protocolo no drone</option>';
+      selProto.disabled = true;
+    } else {
+      // new Option(text, value), não innerHTML: o nome do protocolo vem do
+      // PRÓPRIO drone (GET /protocols), uma máquina que a estação não
+      // controla. Concatenar em innerHTML deixaria um nome de arquivo como
+      // `x"><img src=x onerror=...>` injetar HTML na página. renderScriptList
+      // já resolve isso do mesmo jeito para a lista de scripts.
+      selProto.add(new Option('—', ''));
+      known.forEach(function (name) {
+        var opt = new Option(name, name);
+        opt.selected = row.protocol === name;
+        selProto.add(opt);
+      });
+      selProto.addEventListener('change', function () {
+        row.protocol = this.value;
+        renderMissionControls();
+      });
+    }
+    tdProto.appendChild(selProto);
+
+    // Coluna 3 — estado, vindo do /mission/status daquele drone.
+    var tdState = document.createElement('td');
+    var state = row.drone === '' ? '—' : (missionStates[row.drone] || '?');
+    tdState.innerHTML = '<span class="mission-state"></span>';
+    tdState.firstChild.textContent = state;
+    tdState.firstChild.setAttribute('data-state', state);
+
+    var tdDel = document.createElement('td');
+    var del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'btn btn-sm';
+    del.textContent = '×';
+    del.setAttribute('aria-label', 'Remover linha');
+    del.addEventListener('click', function () {
+      missionRows.splice(index, 1);
+      renderMissionRows();
+      renderMissionControls();
+    });
+    tdDel.appendChild(del);
+
+    tr.appendChild(tdDrone);
+    tr.appendChild(tdProto);
+    tr.appendChild(tdState);
+    tr.appendChild(tdDel);
+    tbody.appendChild(tr);
+  });
+}
+
+// ------------------------------------------------------------- os botões
+
+function missionAllAre(state) {
+  var ids = missionDroneIds();
+  if (ids.length === 0) return false;
+  return ids.every(function (id) { return missionStates[id] === state; });
+}
+
+function missionAnyIs(states) {
+  return missionDroneIds().some(function (id) {
+    return states.indexOf(missionStates[id]) !== -1;
+  });
+}
+
+function missionBlockReason() {
+  // O botão desabilitado diz POR QUÊ. O embedded já recusa um load fora de
+  // idle com 409; deixar apertar pra receber o 409 seria transformar uma regra
+  // conhecida numa surpresa.
+  if (missionSocket.readyState !== WebSocket.OPEN) return 'Socket de missão fechado.';
+  if (missionRows.length === 0) return 'Adicione ao menos uma linha.';
+  if (missionDroneIds().length === 0) return 'Nenhuma linha tem drone escolhido.';
+  if (missionAnyIs(['unreachable'])) return 'Algum drone está inalcançável — nenhum embedded respondeu.';
+  return '';
+}
+
+function renderMissionControls() {
+  var reason = missionBlockReason();
+  var note = document.getElementById('mission-blocked');
+  note.textContent = reason;
+  note.hidden = reason === '';
+
+  var rowsReady = missionRows.length > 0 && missionRows.every(function (r) {
+    return r.drone !== '' && r.protocol !== '';
+  });
+
+  document.getElementById('mission-upload').disabled =
+    reason !== '' || missionFile === null;
+  document.getElementById('mission-load').disabled =
+    reason !== '' || !rowsReady || !missionFrame || !missionAllAre('idle');
+  document.getElementById('mission-setup').disabled =
+    reason !== '' || !missionAllAre('loaded');
+  document.getElementById('mission-start').disabled =
+    reason !== '' || !missionAllAre('ready');
+  document.getElementById('mission-stop').disabled =
+    reason !== '' || !missionAnyIs(['running', 'returning']);
+
+  var frameText = document.getElementById('mission-frame-text');
+  if (missionFrame) {
+    var o = missionFrame.origin_gps_coordinates;
+    frameText.textContent =
+      'GPS 00: ' + o[0].toFixed(6) + ', ' + o[1].toFixed(6) + ' · alt ' + o[2] +
+      ' m · eixo x a ' + missionFrame.x_axis_degrees.toFixed(1) + '° do norte';
+  } else {
+    frameText.textContent = 'Nenhum referencial definido.';
+  }
+}
+
+function setMissionFrame(lat, lng, alt, degrees) {
+  missionFrame = {
+    origin_gps_coordinates: [lat, lng, alt],
+    x_axis_degrees: degrees,
+  };
+  renderMissionControls();
+}
+
+// ------------------------------------------------------------- o feedback
+
+function missionFeedback(text, ok) {
+  var list = document.getElementById('mission-feedback');
+  var li = document.createElement('li');
+  li.setAttribute('data-ok', ok ? 'true' : 'false');
+  li.textContent = text;
+  list.appendChild(li);
+  while (list.children.length > 40) list.removeChild(list.firstChild);
+}
+
+function clearMissionFeedback() {
+  document.getElementById('mission-feedback').innerHTML = '';
+}
+
+// --------------------------------------------------------- o que o servidor diz
+
+missionSocket.addEventListener('message', function (event) {
+  var msg;
+  try { msg = JSON.parse(event.data); } catch (e) { return; }
+
+  if (msg.done) {
+    // node_ip_dict só cobre os drones do lote que terminou — 'protocols' e
+    // 'status' às vezes miram um subconjunto (uma linha só, por exemplo). Só o
+    // 'load' manda a frota inteira, então só ele pode escrever no readout sem
+    // mentir por omissão sobre quem está fora do mapa de vizinhos.
+    if (msg.action === 'load') {
+      document.getElementById('mission-neighbors').textContent =
+        'Vizinhos: ' + JSON.stringify(msg.node_ip_dict);
+    }
+    renderMissionRows();
+    renderMissionControls();
+    return;
+  }
+
+  var id = String(msg.drone_id);
+
+  if (!msg.ok) {
+    // Só 'status' vira 'unreachable': é o único caso em que ok:false quer dizer
+    // "ninguém respondeu". Um 'load' recusado com 409, por exemplo, é o
+    // OPOSTO — um drone alcançável dizendo "já tenho missão rodando". Tratar
+    // os dois do mesmo jeito marcaria um drone vivo como sumido e bloquearia
+    // os botões com o motivo errado. As outras ações só geram feedback e log;
+    // quem corrige missionStates de verdade é o próximo poll de status (5 s).
+    if (msg.action === 'status') {
+      // O poll de status roda a cada 5 s com a aba aberta. renderMissionRows()
+      // reconstrói os <select> do zero — se o operador estiver com um deles
+      // aberto quando a resposta chega, o dropdown fecha e o foco se perde.
+      // Só vale a pena pagar esse custo quando o estado de fato mudou.
+      var wasUnreachable = missionStates[id] === 'unreachable';
+      missionStates[id] = 'unreachable';
+      if (!wasUnreachable) renderMissionRows();
+    } else {
+      missionFeedback('Drone ' + id + ' · ' + msg.action + ' · ' + msg.error, false);
+      appendLog('Missão', 'Drone ' + id + ': ' + msg.error, 'in');
+      renderMissionRows();
+    }
+    renderMissionControls();
+    return;
+  }
+
+  if (msg.action === 'protocols') {
+    missionProtocols[id] = (msg.data.protocols || []).map(function (p) { return p.name; });
+    renderMissionRows();
+  } else if (msg.action === 'status') {
+    // Mesmo raciocínio do ramo unreachable acima: só reconstruir a tabela
+    // quando o estado muda, para não fechar um <select> aberto a cada poll.
+    var changed = missionStates[id] !== msg.data.state;
+    missionStates[id] = msg.data.state;
+    if (changed) renderMissionRows();
+  } else if (msg.action === 'upload') {
+    missionFeedback('Drone ' + id + ' · enviado ' + msg.data.protocol +
+                    ' (' + msg.data.size_bytes + ' bytes)', true);
+    missionSend({ action: 'protocols', ids: [Number(id)] });
+    renderMissionRows();
+  } else {
+    missionFeedback('Drone ' + id + ' · ' + msg.action + ' · ok' +
+                    (msg.data && msg.data.run_id ? ' · run ' + msg.data.run_id : ''), true);
+    missionSend({ action: 'status', ids: [Number(id)] });
+    renderMissionRows();
+  }
+
+  renderMissionControls();
+});
+
+// ---------------------------------------------------------------- os cliques
+
+document.getElementById('mission-add-row').addEventListener('click', function () {
+  missionRows.push({ drone: '', protocol: '' });
+  renderMissionRows();
+  renderMissionControls();
+});
+
+document.getElementById('mission-protocol-file').addEventListener('change', function () {
+  var file = this.files[0];
+  if (!file) { missionFile = null; renderMissionControls(); return; }
+
+  var reader = new FileReader();
+  reader.onload = function () {
+    // split(',')[1] tira o prefixo "data:...;base64," — o servidor faz
+    // b64decode do resto, e o prefixo quebraria isso.
+    missionFile = { filename: file.name, content: reader.result.split(',')[1] };
+    document.getElementById('mission-file-name').textContent = file.name;
+    renderMissionControls();
+  };
+  reader.readAsDataURL(file);
+});
+
+document.getElementById('mission-upload').addEventListener('click', function () {
+  clearMissionFeedback();
+  missionSend({
+    action: 'upload',
+    ids: missionDroneIds().map(Number),
+    filename: missionFile.filename,
+    content: missionFile.content,
+  });
+});
+
+document.getElementById('mission-load').addEventListener('click', function () {
+  clearMissionFeedback();
+  missionSend({
+    action: 'load',
+    frame: missionFrame,
+    rows: missionRows
+      .filter(function (r) { return r.drone !== '' && r.protocol !== ''; })
+      .map(function (r) { return { id: Number(r.drone), protocol: r.protocol }; }),
+  });
+});
+
+['setup', 'start', 'stop'].forEach(function (action) {
+  document.getElementById('mission-' + action).addEventListener('click', function () {
+    clearMissionFeedback();
+    missionSend({ action: action, ids: missionDroneIds().map(Number) });
+  });
+});
+
+function setMissionPoll(active) {
+  // Só enquanto a aba está na tela, e em QUIET: o status volta a cada 5 s, e
+  // logar isso inundaria o painel do jeito que os pings de posição inundavam.
+  if (active && missionPoll === null) {
+    // O operador pode ter saído da aba com o socket num estado e voltado com
+    // outro (caiu e voltou, por exemplo) — repintar aqui garante que a tabela
+    // e o motivo exibido reflitam a realidade atual, não a de quando a aba
+    // foi trocada.
+    renderMissionRows();
+    renderMissionControls();
+    var ask = function () {
+      var ids = missionDroneIds().map(Number);
+      if (ids.length > 0) missionSend({ action: 'status', ids: ids });
+    };
+    ask();
+    missionPoll = setInterval(ask, 5000);
+  } else if (!active && missionPoll !== null) {
+    clearInterval(missionPoll);
+    missionPoll = null;
+  }
+}
+
+
+// ===========================================================================
 // Socket lifecycle
 // ===========================================================================
 
@@ -759,6 +1254,12 @@ receivePostSocket.onclose = function(e) {
 updateSocket.onclose = function(e) {
   console.error('Update socket closed unexpectedly');
 }
+
+// missionBlockReason() lê missionSocket.readyState a cada render, mas nada
+// disparava um render quando o estado mudava — a nota ficava presa em
+// "Socket de missão fechado." até a próxima interação do operador na aba.
+missionSocket.addEventListener('open', renderMissionControls);
+missionSocket.addEventListener('close', renderMissionControls);
 
 
 // ===========================================================================
@@ -852,3 +1353,82 @@ renderConnectionState(
   isLinkUp() ? 'online' : 'connecting',
   isLinkUp() ? 'Link online' : 'Connecting…'
 );
+// Sem isto, abrir a aba Missão pela primeira vez deixa #mission-blocked com o
+// `hidden` do HTML e os quatro botões desabilitados sem nenhuma explicação na
+// tela — só um clique em "adicionar linha" revelaria o motivo.
+renderMissionRows();
+renderMissionControls();
+
+// ===========================================================================
+// Modal — origem da missão
+// ===========================================================================
+// Isto define origin_gps_coordinates + x_axis_degrees do POST /mission/load do
+// embedded. NÃO é o HOME do veículo, que é command/set_home no vehicle_api: são
+// APIs diferentes, e mexer numa não toca na outra. A separação é estrutural, não
+// uma convenção que alguém precisa lembrar de respeitar.
+
+var originMap = null;
+var originMarker = null;
+var originPoint = null;
+
+function openOriginModal() {
+  document.getElementById('origin-modal').hidden = false;
+
+  if (originMap === null) {
+    // Construído na primeira abertura, não no carregamento da página: o Leaflet
+    // mede o container, e um container escondido mede zero.
+    originMap = L.map('origin-map').setView(HOME, 16);
+    L.tileLayer(BASEMAPS[DEFAULT_BASEMAP].url, {
+      maxZoom: 19,
+      attribution: TILE_ATTRIBUTION,
+      referrerPolicy: 'strict-origin-when-cross-origin',
+      className: 'basemap-muted',
+    }).addTo(originMap);
+
+    originMap.on('click', function (e) {
+      originPoint = { lat: e.latlng.lat, lng: e.latlng.lng };
+      if (originMarker === null) {
+        originMarker = L.marker(e.latlng).addTo(originMap);
+      } else {
+        originMarker.setLatLng(e.latlng);
+      }
+      document.getElementById('origin-readout').textContent =
+        'GPS 00: ' + originPoint.lat.toFixed(6) + ', ' + originPoint.lng.toFixed(6);
+      document.getElementById('origin-confirm').disabled = false;
+    });
+  }
+
+  // O modal estava escondido quando o mapa foi criado ou redimensionado, então o
+  // Leaflet ainda acha que o container tem o tamanho antigo e os tiles rasgam.
+  setTimeout(function () { originMap.invalidateSize(); }, 0);
+}
+
+function closeOriginModal() {
+  document.getElementById('origin-modal').hidden = true;
+}
+
+document.getElementById('mission-pick-origin').addEventListener('click', openOriginModal);
+document.getElementById('origin-close').addEventListener('click', closeOriginModal);
+
+document.getElementById('origin-modal').addEventListener('click', function (e) {
+  if (e.target === this) closeOriginModal();      // clique fora da caixa fecha
+});
+
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape' && !document.getElementById('origin-modal').hidden) {
+    closeOriginModal();
+  }
+});
+
+document.getElementById('origin-confirm').addEventListener('click', function () {
+  if (originPoint === null) return;
+  var degrees = parseFloat(document.getElementById('origin-heading').value);
+  var alt = parseFloat(document.getElementById('origin-alt').value);
+  setMissionFrame(
+    originPoint.lat,
+    originPoint.lng,
+    isNaN(alt) ? 0 : alt,
+    isNaN(degrees) ? 0 : degrees
+  );
+  closeOriginModal();
+});

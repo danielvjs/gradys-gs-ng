@@ -95,5 +95,60 @@ def send_uav_ip(request):
     ip = config['uav-simulator']['ip_uav_server']
   else:
     ip = device[0]['ip']
-  
+
   return JsonResponse({'ip': ip})
+
+
+from django.http import HttpResponseNotAllowed
+from .models import Marking
+
+
+@csrf_exempt
+def markings(request):
+  # Listar e criar. O projeto inteiro é csrf_exempt (os drones postam sem token),
+  # e uma exceção aqui só pra esta rota seria inconsistente sem ganhar nada.
+  if request.method == 'GET':
+    return JsonResponse({
+      'markings': [m.as_dict() for m in Marking.objects.order_by('id')]
+    })
+
+  if request.method == 'POST':
+    try:
+      body = json.load(request)
+    except ValueError:
+      return JsonResponse({'error': 'Corpo não é JSON'}, status=400)
+
+    kind = body.get('kind')
+    color = body.get('color', 'slate')
+
+    # Validado no servidor porque o que o navegador manda não é confiável: uma
+    # cor fora da paleta viraria um marcador sem fill, invisível no mapa.
+    if kind not in dict(Marking.KINDS):
+      return JsonResponse({'error': f'Tipo inválido: {kind}'}, status=400)
+    if color not in dict(Marking.COLORS):
+      return JsonResponse({'error': f'Cor inválida: {color}'}, status=400)
+
+    try:
+      lat = float(body['lat'])
+      lng = float(body['lng'])
+    except (KeyError, TypeError, ValueError):
+      return JsonResponse({'error': 'lat e lng são obrigatórios e numéricos'}, status=400)
+
+    marking = Marking.objects.create(
+      kind=kind, lat=lat, lng=lng, color=color,
+      label=str(body.get('label', ''))[:120],
+    )
+    return JsonResponse(marking.as_dict(), status=201)
+
+  return HttpResponseNotAllowed(['GET', 'POST'])
+
+
+@csrf_exempt
+def marking_detail(request, marking_id):
+  if request.method != 'DELETE':
+    return HttpResponseNotAllowed(['DELETE'])
+
+  deleted, _ = Marking.objects.filter(id=marking_id).delete()
+  if deleted == 0:
+    return JsonResponse({'error': 'Marcação não encontrada'}, status=404)
+  return JsonResponse({'deleted': True})

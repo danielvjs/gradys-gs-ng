@@ -28,7 +28,13 @@
       <button type="button" class="rail-btn" id="rail-scripts" role="tab"
               aria-selected="false" aria-controls="pane-scripts" data-panel="scripts">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2.8h7.2L19 8.6V21a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V3.8a1 1 0 0 1 1-1zm7 1.8v4h4l-4-4zM8.3 12.4l-2.1 2.1 2.1 2.1.9-.9-1.2-1.2 1.2-1.2-.9-.9zm7.4 0-.9.9 1.2 1.2-1.2 1.2.9.9 2.1-2.1-2.1-2.1zm-2.4-.7-1.6 5.5 1.2.3 1.6-5.5-1.2-.3z"/></svg>
-        <span class="rail-tip">Scripts</span>
+        <span class="rail-tip">API Scripts</span>
+      </button>
+
+      <button type="button" class="rail-btn" id="rail-mission" role="tab"
+              aria-selected="false" aria-controls="pane-mission" data-panel="mission">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.4a6.2 6.2 0 0 0-6.2 6.2c0 4.4 6.2 12.9 6.2 12.9s6.2-8.5 6.2-12.9A6.2 6.2 0 0 0 12 2.4zm0 8.8a2.6 2.6 0 1 1 0-5.2 2.6 2.6 0 0 1 0 5.2z"/></svg>
+        <span class="rail-tip">Missão</span>
       </button>
 
       <button type="button" class="rail-btn" id="rail-logs" role="tab"
@@ -79,6 +85,39 @@
             <strong>No drones connected</strong>
             Start a drone or the simulator — it registers itself here as soon as it reports a position.
           </p>
+
+          <section class="block block-markings">
+            <div class="block-head">
+              <h3 class="block-title">Marcações</h3>
+              <button type="button" class="icon-btn" id="mark-add"
+                      aria-pressed="false" title="Marcar um ponto no mapa"
+                      aria-label="Marcar um ponto no mapa">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11.2 4.8h1.6v6.4h6.4v1.6h-6.4v6.4h-1.6v-6.4H4.8v-1.6h6.4V4.8z"/></svg>
+              </button>
+            </div>
+
+            <div class="mark-form" id="mark-form" hidden>
+              <select class="select" id="mark-kind" aria-label="Tipo da marcação">
+                <option value="pessoa">Pessoa</option>
+                <option value="pessoas">Pessoas</option>
+                <option value="interesse">Ponto de interesse</option>
+              </select>
+              <select class="select" id="mark-color" aria-label="Cor da marcação">
+                <option value="red">Vermelho</option>
+                <option value="amber">Âmbar</option>
+                <option value="green">Verde</option>
+                <option value="cyan">Ciano</option>
+                <option value="violet">Violeta</option>
+                <option value="slate" selected>Ardósia</option>
+              </select>
+              <input class="select" id="mark-label" type="text" maxlength="120"
+                     placeholder="Rótulo (opcional)" aria-label="Rótulo da marcação">
+              <p class="hint">Clique no mapa pra marcar. Clique de novo no botão pra sair.</p>
+            </div>
+
+            <ul class="running" id="mark-list"></ul>
+            <p class="hint" id="mark-hint">Nenhuma marcação.</p>
+          </section>
         </div>
 
         <div class="telemetry" id="telemetry" hidden></div>
@@ -117,7 +156,7 @@
       <!-- ---- Scripts ---- -->
       <div class="pane is-hidden" id="pane-scripts" role="tabpanel" aria-labelledby="rail-scripts">
         <header class="pane-head">
-          <h2 class="pane-title">Scripts</h2>
+          <h2 class="pane-title">API Scripts</h2>
         </header>
 
         <div class="pane-scroll">
@@ -160,6 +199,70 @@
         </div>
       </div>
 
+      <!-- ---- Missão (gradys-embedded) ---- -->
+      <div class="pane is-hidden" id="pane-mission" role="tabpanel" aria-labelledby="rail-mission">
+        <header class="pane-head">
+          <h2 class="pane-title">Missão</h2>
+        </header>
+
+        <div class="pane-scroll">
+          <section class="block">
+            <div class="block-head">
+              <h3 class="block-title">Referencial</h3>
+              <button type="button" class="icon-btn" id="mission-pick-origin"
+                      title="Definir a origem no mapa" aria-label="Definir a origem no mapa">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.4v-2h-1.6v2A7.7 7.7 0 0 0 3.6 11.2h-2v1.6h2A7.7 7.7 0 0 0 10.4 19.6v2H12v-2a7.7 7.7 0 0 0 6.8-6.8h2v-1.6h-2A7.7 7.7 0 0 0 12 4.4zm-.8 3.2a4.4 4.4 0 1 1 0 8.8 4.4 4.4 0 0 1 0-8.8z"/></svg>
+              </button>
+            </div>
+            <p class="hint" id="mission-frame-text">Nenhum referencial definido.</p>
+            <p class="hint">
+              Este é o GPS 00 da missão, não o HOME do veículo — são APIs
+              diferentes, e definir um não mexe no outro.
+            </p>
+          </section>
+
+          <section class="block">
+            <div class="block-head">
+              <h3 class="block-title">Drones</h3>
+              <button type="button" class="icon-btn" id="mission-add-row"
+                      title="Adicionar linha" aria-label="Adicionar linha">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11.2 4.8h1.6v6.4h6.4v1.6h-6.4v6.4h-1.6v-6.4H4.8v-1.6h6.4V4.8z"/></svg>
+              </button>
+            </div>
+            <table class="mission-table">
+              <thead>
+                <tr><th>Drone</th><th>Protocolo</th><th>Estado</th><th></th></tr>
+              </thead>
+              <tbody id="mission-rows"></tbody>
+            </table>
+            <p class="hint" id="mission-neighbors">Vizinhos: —</p>
+          </section>
+
+          <section class="block">
+            <h3 class="block-title">Controle</h3>
+            <p class="commands-blocked" id="mission-blocked" hidden></p>
+
+            <label for="mission-protocol-file" class="filedrop">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.6 7.4 8.2l1.1 1.1 2.7-2.7v8.6h1.6V6.6l2.7 2.7 1.1-1.1L12 3.6zM4.8 15.4v3.4a1.6 1.6 0 0 0 1.6 1.6h11.2a1.6 1.6 0 0 0 1.6-1.6v-3.4h-1.6v3.4H6.4v-3.4H4.8z"/></svg>
+              <span id="mission-file-name">Escolher um protocolo (.py)</span>
+            </label>
+            <input id="mission-protocol-file" type="file" accept=".py">
+            <button type="button" class="btn btn-block" id="mission-upload" disabled>Enviar protocolo</button>
+
+            <div class="cmd-row">
+              <button type="button" class="btn" id="mission-load" disabled>Load</button>
+              <button type="button" class="btn" id="mission-setup" disabled>Setup</button>
+            </div>
+            <div class="cmd-row">
+              <button type="button" class="btn" id="mission-start" disabled>Start</button>
+              <button type="button" class="btn" id="mission-stop" disabled>Stop</button>
+            </div>
+
+            <ul class="mission-feedback" id="mission-feedback"></ul>
+          </section>
+        </div>
+      </div>
+
       <!-- ---- Logs ---- -->
       <div class="pane is-hidden" id="pane-logs" role="tabpanel" aria-labelledby="rail-logs">
         <header class="pane-head">
@@ -188,6 +291,35 @@
       <div id="map"></div>
     </main>
 
+  </div>
+
+  <!-- Mapa próprio, não o principal: escolher a origem não deve mexer no
+       enquadramento que o operador está usando pra acompanhar a frota. -->
+  <div class="modal" id="origin-modal" hidden role="dialog" aria-modal="true"
+       aria-labelledby="origin-title">
+    <div class="modal-box">
+      <header class="modal-head">
+        <h2 class="modal-title" id="origin-title">Origem da missão</h2>
+        <button type="button" class="icon-btn" id="origin-close" aria-label="Fechar">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.3 7.1 16.9 5.7 12 10.6 7.1 5.7 5.7 7.1l4.9 4.9-4.9 4.9 1.4 1.4 4.9-4.9 4.9 4.9 1.4-1.4-4.9-4.9z"/></svg>
+        </button>
+      </header>
+
+      <div class="modal-map" id="origin-map"></div>
+
+      <div class="modal-foot">
+        <p class="hint" id="origin-readout">Clique no mapa pra escolher o GPS 00.</p>
+        <label class="cmd-label" for="origin-heading">Eixo x, graus do norte</label>
+        <input class="select" id="origin-heading" type="number" value="0" min="0" max="359" step="1">
+        <label class="cmd-label" for="origin-alt">Altitude da origem (m)</label>
+        <input class="select" id="origin-alt" type="number" value="0" step="0.1">
+        <p class="hint">
+          O eixo x tem que ser idêntico em todos os nós: referenciais rodados
+          diferente dessincronizam os frames cartesianos em silêncio.
+        </p>
+        <button type="button" class="btn btn-block" id="origin-confirm" disabled>Usar este ponto</button>
+      </div>
+    </div>
   </div>
 
   <script>
