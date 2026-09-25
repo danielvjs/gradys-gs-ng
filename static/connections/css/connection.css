@@ -608,6 +608,43 @@ button, input, select { font: inherit; color: inherit; }
 
 .block-head .block-title { margin-bottom: 0; }
 
+/* O alvo é a linha do título inteira, não um ícone de 32 px: recolher uma seção
+   é a ação mais óbvia que se pode querer do cabeçalho dela, e um triângulo de
+   divulgação à esquerda é um desenho que ninguém confunde com o chevron de
+   recolher do painel. */
+.block-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin-right: auto;
+  padding: var(--s-1) var(--s-1) var(--s-1) 0;
+  background: none;
+  border: 0;
+  border-radius: var(--radius);
+  color: var(--ink-dim);
+  cursor: pointer;
+  transition: color var(--dur) linear;
+}
+
+.block-toggle:hover { color: var(--ink); }
+.block-toggle .block-title { margin-bottom: 0; }
+
+.block-toggle .caret {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+  transition: transform var(--dur) linear;
+}
+
+/* Aberto o triângulo aponta pra baixo, pro conteúdo; fechado, pra direita.
+   É a convenção de árvore de arquivos, e o estado fica legível sem ler rótulo. */
+.block-toggle[aria-expanded="true"] .caret { transform: rotate(90deg); }
+
+/* A lista de marcações crescia sem limite e empurrava a frota pra fora da tela.
+   Recolhida ela vira uma linha só, e a contagem no cabeçalho continua dizendo
+   quantas existem — recolher não pode virar esconder. */
+.block-markings.is-collapsed #mark-body { display: none; }
+
 .select {
   width: 100%;
   min-height: 36px;
@@ -620,7 +657,10 @@ button, input, select { font: inherit; color: inherit; }
   cursor: pointer;
 }
 
-.select + .btn-block { margin-top: var(--s-3); }
+/* O espaco abaixo de um select vinha do paragrafo de ajuda que costumava
+   segui-lo. Sem o paragrafo, o controle seguinte encosta nele. */
+.select + .btn-block,
+.select + .cmd-row { margin-top: var(--s-3); }
 
 input[type="file"] { display: none; }
 
@@ -803,6 +843,46 @@ input[type="file"] { display: none; }
 .app.panel-hidden { grid-template-columns: var(--rail-w) 1fr; }
 .app.panel-hidden .panel { display: none; }
 
+/* Painel largo, pedido pela aba Missão: cinco colunas de tabela mais os textos
+   de apoio não cabem em 360 px sem truncar. O mapa continua na tela — é dele
+   que sai a origem que a aba pede — só fica menor. min() em vez de largura
+   fixa: num monitor estreito 640 px deixaria o mapa como uma tira inútil. */
+.app.panel-wide { grid-template-columns: var(--rail-w) min(640px, 46vw) 1fr; }
+
+/* No painel largo a tabela ganha o espaço numa ordem deliberada: primeiro a
+   posição inicial, que é a única célula digitada, depois o protocolo, cujo nome
+   vem do drone e é o mais longo. */
+.app.panel-wide .mission-table col.col-drone { width: 18%; }
+.app.panel-wide .mission-table col.col-proto { width: 30%; }
+.app.panel-wide .mission-table col.col-pos   { width: 30%; }
+.app.panel-wide .mission-table col.col-state { width: 16%; }
+.app.panel-wide .mission-table col.col-del   { width: 6%;  }
+.app.panel-wide .mission-table .select { font-size: var(--t-sm); }
+.app.panel-wide .mission-pos { font-size: var(--t-sm); }
+
+/* Ícone mais rótulo, no cabeçalho do painel. Discreto como o resto da chrome,
+   mas legível — que é a diferença entre um controle e um easter egg. */
+.pane-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  height: 28px;
+  padding: 0 var(--s-2);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--ink-dim);
+  font-size: var(--t-xs);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color var(--dur) linear, background-color var(--dur) linear;
+}
+
+.pane-btn svg { width: 14px; height: 14px; fill: currentColor; }
+.pane-btn:hover { color: var(--ink); background: var(--surface-3); }
+.pane-btn[aria-pressed="true"] { color: var(--ink); }
+
 /* The toggle lives in the rail rather than floating over the map. The rail is
    the one strip that is always on screen, so the same control closes and
    reopens the panel — and nothing is ever laid on top of the map. */
@@ -889,7 +969,19 @@ input[type="file"] { display: none; }
   width: 100%;
   border-collapse: collapse;
   font-size: var(--t-sm);
+  /* Fixo porque a coluna de posição inicial fez a tabela passar a caber com
+     folga zero na barra lateral. Com layout automático, o navegador dá a
+     largura ao conteúdo mais gordo e as duas primeiras colunas são espremidas
+     até "D" e "smoke_" — os dois campos que o operador PRECISA ler antes de
+     armar a frota. */
+  table-layout: fixed;
 }
+
+.mission-table col.col-drone  { width: 20%; }
+.mission-table col.col-proto  { width: 26%; }
+.mission-table col.col-pos    { width: 29%; }
+.mission-table col.col-state  { width: 17%; }
+.mission-table col.col-del    { width: 8%;  }
 
 .mission-table th {
   text-align: left;
@@ -903,12 +995,58 @@ input[type="file"] { display: none; }
 }
 
 .mission-table td {
-  padding: var(--s-1) var(--s-2) var(--s-1) 0;
+  padding: var(--s-1) var(--s-1) var(--s-1) 0;
   border-bottom: 1px solid var(--line);
   vertical-align: middle;
 }
 
-.mission-table .select { width: 100%; min-width: 0; }
+/* Cinco colunas numa barra lateral: o versalete espaçado do resto da interface
+   não cabe mais. Menos letter-spacing aqui, e quebra em vez de corte. */
+.mission-table th {
+  padding-right: var(--s-1);
+  white-space: normal;
+  letter-spacing: .02em;
+}
+
+/* O padding horizontal do .select padrão é dimensionado pra um seletor que
+   ocupa a barra inteira. Dentro de uma célula de 80 px ele come o texto. */
+.mission-table .select {
+  width: 100%;
+  min-width: 0;
+  padding-left: var(--s-1);
+  padding-right: var(--s-1);
+  font-size: var(--t-xs);
+}
+
+/* A posição inicial é digitada, não escolhida: é um ponto no referencial da
+   missão, não uma opção que o drone ofereça. Monoespaçada porque o operador
+   compara as três linhas de uma formação a olho. */
+.mission-pos {
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  margin-top: var(--s-2);
+  padding: var(--s-2);
+  background: var(--surface-2);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+}
+
+/* Vermelho enquanto o texto não for três números: o Load fica travado por isso,
+   e a linha tem que dizer qual é. */
+.mission-pos[data-valid="false"] { border-color: var(--critical); }
+
+.field-label {
+  display: block;
+  margin-top: var(--s-3);
+  color: var(--ink-dim);
+  font-size: var(--t-xs);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
 
 /* O .btn-stop da lista de scripts não serve aqui: ele é posicionado por
    grid-column, e dentro de uma célula de tabela não há grid pra posicionar. */
@@ -1125,6 +1263,10 @@ input[type="file"] { display: none; }
 
 .mark-body .nose { fill: #14171A; stroke: none; }
 
+/* Um pin já ocupa até a base da caixa: o rótulo no mesmo lugar dos outros
+   glifos encostaria na ponta, que é justamente o pixel que marca o ponto. */
+.mark.is-pin .mark-label { top: 38px; }
+
 .mark-label {
   position: absolute;
   top: 34px;
@@ -1136,6 +1278,55 @@ input[type="file"] { display: none; }
   font-size: 10px;
   white-space: nowrap;
 }
+
+/* --- Gesto da origem -------------------------------------------------------
+   Apertar marca o GPS 00; arrastar pra fora mostra o círculo e a bolinha, e a
+   direção em que se solta é o eixo x. Traço fino e sem preenchimento pesado: o
+   que importa é o terreno embaixo, não o desenho.
+   ------------------------------------------------------------------------- */
+.origin-ring {
+  fill: var(--caution);
+  fill-opacity: .06;
+  stroke: var(--caution);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;
+}
+
+.origin-arm {
+  stroke: var(--caution);
+  stroke-width: 2;
+}
+
+/* A alça. Grande o bastante pra pegar com o mouse sem mirar, e com o cursor
+   dizendo que ela se move — é o único elemento do mapa que aceita arrasto. */
+.origin-knob {
+  display: block;
+  width: 14px;
+  height: 14px;
+  margin: 4px;
+  border-radius: 50%;
+  background: var(--caution);
+  border: 2px solid #14171A;
+  cursor: grab;
+}
+
+.origin-knob:active { cursor: grabbing; }
+
+/* Enquanto gira, o cursor é de agarrar em QUALQUER lugar da página e nada
+   seleciona texto: o ponteiro sai de cima da bolinha de 14 px no primeiro giro
+   rápido, e sem isto ele vira mira no meio do gesto e o arrasto começa a
+   marcar o texto do modal. */
+body.is-turning, body.is-turning * { cursor: grabbing !important; user-select: none; }
+
+/* A dica ocupa duas linhas e a leitura do GPS ocupa uma. Sem altura mínima o
+   modal inteiro sobe no instante do clique — e o mapa sobe junto, debaixo do
+   ponteiro, no meio de uma escolha de precisão. */
+#origin-readout { min-height: 2.9em; }
+
+/* Mira no mapa: clicar põe o ponto. Sobre a bolinha o cursor vira mão, e é essa
+   troca que ensina, sem rótulo, que ali o arrasto faz outra coisa. */
+#origin-map { cursor: crosshair; }
+#origin-map .leaflet-marker-draggable { cursor: grab; }
 
 /* --- Scrollbars ----------------------------------------------------------- */
 .pane-scroll::-webkit-scrollbar,

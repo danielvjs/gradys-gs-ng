@@ -239,6 +239,25 @@ document.getElementById('toggle-details').onclick = function () {
   this.title = open ? 'Recolher telemetria e comandos' : 'Mostrar telemetria e comandos';
 };
 
+document.getElementById('mission-widen').onclick = function () {
+  var app = document.querySelector('.app');
+  var wide = app.classList.toggle('panel-wide');
+  this.setAttribute('aria-pressed', wide ? 'true' : 'false');
+  document.getElementById('mission-widen-label').textContent = wide ? 'Estreitar' : 'Alargar';
+  try { localStorage.setItem('missionWide', wide ? '1' : '0'); } catch (e) { /* modo privado */ }
+  // Mesma razão do toggle-panel abaixo: o mapa encolheu, e o Leaflet só
+  // descobre isso se alguém contar.
+  setTimeout(function () {
+    try { gmap.map.invalidateSize(); } catch (e) { /* map not up yet */ }
+  }, 160);
+};
+
+try {
+  if (localStorage.getItem('missionWide') === '1') {
+    document.getElementById('mission-widen').click();
+  }
+} catch (e) { /* modo privado */ }
+
 document.getElementById('toggle-panel').onclick = function () {
   var app = document.querySelector('.app');
   var open = !app.classList.toggle('panel-hidden');
@@ -545,10 +564,27 @@ function updateCommandAvailability() {
 var markings = {};
 var markingMode = false;
 
+function setMarkingsOpen(open) {
+  document.getElementById('block-markings').classList.toggle('is-collapsed', !open);
+  var btn = document.getElementById('mark-collapse');
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  var label = open ? 'Recolher as marcações' : 'Mostrar as marcações';
+  btn.title = label;
+  btn.setAttribute('aria-label', label);
+  try { localStorage.setItem('markingsOpen', open ? '1' : '0'); } catch (e) { /* modo privado */ }
+}
+
+function markingsAreOpen() {
+  return !document.getElementById('block-markings').classList.contains('is-collapsed');
+}
+
 function renderMarkingList() {
   var list = document.getElementById('mark-list');
   var ids = Object.keys(markings);
   document.getElementById('mark-hint').hidden = ids.length > 0;
+  // A contagem é o que sobra visível quando o bloco está recolhido; sem ela,
+  // recolher esconderia o fato de existirem marcações.
+  document.getElementById('mark-count').textContent = ids.length;
   list.innerHTML = '';
 
   ids.forEach(function (id) {
@@ -636,7 +672,16 @@ function setMarkingMode(on) {
   document.getElementById('map').style.cursor = markingMode ? 'crosshair' : '';
 }
 
+document.getElementById('mark-collapse').addEventListener('click', function () {
+  setMarkingsOpen(!markingsAreOpen());
+});
+
 document.getElementById('mark-add').addEventListener('click', function () {
+  // Entrar no modo marcar com o bloco recolhido esconderia o formulário que
+  // escolhe tipo e cor — o botão abriria um modo cujos controles não estão na
+  // tela. Sair do modo não fecha de volta: fechar sozinho o que o operador
+  // acabou de abrir é pior que deixar aberto.
+  if (!markingMode && !markingsAreOpen()) setMarkingsOpen(true);
   setMarkingMode(!markingMode);
 });
 
@@ -649,6 +694,12 @@ function initMarkings() {
     if (!markingMode) return;
     createMarking(point.lat, point.lng);
   });
+  // Recolhido por padrão: o bloco fica entre a frota e os comandos, e aberto
+  // com meia dúzia de marcações empurra os dois pra fora da tela. A escolha de
+  // quem abriu uma vez sobrevive ao reload.
+  var saved = null;
+  try { saved = localStorage.getItem('markingsOpen'); } catch (e) { /* modo privado */ }
+  setMarkingsOpen(saved === '1');
   loadMarkings();
 }
 
@@ -871,19 +922,46 @@ function setRunningPoll(active) {
 
 
 // ===========================================================================
-// UI — Missão (gradys-embedded)
+// UI — Missão (embedded)
 // ===========================================================================
 // A tabela é o estado da tela; o servidor não guarda nada. Cada linha é um
 // drone e o protocolo que ele vai rodar. A lista de protocolos da coluna 2 vem
 // do PRÓPRIO drone (GET /protocols) — nunca de uma lista escrita aqui, que
 // mentiria sobre o que aquele drone tem instalado.
 
-var missionRows = [];          // [{drone: '0'|'', protocol: ''}]
+var missionRows = [];          // [{drone: '0'|'', protocol: '', position: 'x, y, z'}]
 var missionProtocols = {};     // drone id -> [nome, ...]
 var missionStates = {};        // drone id -> 'idle'|'loaded'|...|'unreachable'
+var missionEcho = {};          // drone id -> o 'frame' que o /mission/status devolveu
 var missionFrame = null;       // {origin_gps_coordinates: [lat,lng,alt], x_axis_degrees: n}
 var missionPoll = null;
 var missionFile = null;        // {filename, content(base64)}
+
+// A posição inicial é digitada como texto e vira [x,y,z] aqui. Três números,
+// nada além disso: o embedded rejeita uma lista de dois com "initial_position
+// must have exactly three components", e é melhor a linha ficar vermelha na
+// tela do que o drone recusar o Load depois do operador já ter armado a frota.
+function parseInitialPosition(text) {
+  var parts = String(text || '').split(/[,\s]+/).filter(function (p) { return p !== ''; });
+  if (parts.length !== 3) return null;
+  var numbers = parts.map(Number);
+  if (numbers.some(function (n) { return !isFinite(n); })) return null;
+  return numbers;
+}
+
+// Pede o mapa de vizinhos pra estacao. Ele existe desde que ha drone escolhido,
+// nao so depois do Load: o desenho pede que o operador possa CONFERIR o mapa
+// antes de armar a frota, e um readout que so aparece depois do disparo chega
+// tarde pra isso. Quem monta continua sendo o servidor — a tela nao recalcula
+// portas por conta propria.
+function refreshMissionPeers() {
+  var ids = missionDroneIds().map(Number);
+  if (ids.length === 0) {
+    document.getElementById('mission-neighbors').textContent = 'Vizinhos: —';
+    return;
+  }
+  missionSend({ action: 'peers', ids: ids });
+}
 
 function missionSend(payload) {
   if (missionSocket.readyState !== WebSocket.OPEN) {
@@ -936,6 +1014,7 @@ function renderMissionRows() {
       // Perguntar ao drone o que ELE tem. Só depois a coluna 2 pode ser
       // preenchida — é o que "só deixar listar o que a API avisar" quer dizer.
       if (row.drone !== '') missionSend({ action: 'protocols', ids: [Number(row.drone)] });
+      refreshMissionPeers();
       renderMissionRows();
       renderMissionControls();
     });
@@ -974,7 +1053,33 @@ function renderMissionRows() {
     }
     tdProto.appendChild(selProto);
 
-    // Coluna 3 — estado, vindo do /mission/status daquele drone.
+    // Coluna 3 — posição inicial no referencial da missão, em metros. Sem ela o
+    // drone carrega e trava: /mission/setup devolve 400 e não decola.
+    var tdPos = document.createElement('td');
+    var inpPos = document.createElement('input');
+    inpPos.type = 'text';
+    inpPos.className = 'mission-pos';
+    inpPos.placeholder = 'x, y, z';
+    inpPos.value = row.position || '';
+    inpPos.setAttribute('aria-label', 'Posição inicial em metros (x, y, z)');
+    inpPos.setAttribute(
+      'data-valid',
+      row.position ? String(parseInitialPosition(row.position) !== null) : 'true'
+    );
+    // input, não change: o Load tem que destravar enquanto o operador digita, e
+    // não só quando ele sai do campo. Não repinta a tabela — isso mataria o
+    // foco a cada tecla; só o próprio campo e os botões mudam.
+    inpPos.addEventListener('input', function () {
+      row.position = this.value;
+      this.setAttribute(
+        'data-valid',
+        this.value === '' ? 'true' : String(parseInitialPosition(this.value) !== null)
+      );
+      renderMissionControls();
+    });
+    tdPos.appendChild(inpPos);
+
+    // Coluna 4 — estado, vindo do /mission/status daquele drone.
     var tdState = document.createElement('td');
     var state = row.drone === '' ? '—' : (missionStates[row.drone] || '?');
     tdState.innerHTML = '<span class="mission-state"></span>';
@@ -989,6 +1094,7 @@ function renderMissionRows() {
     del.setAttribute('aria-label', 'Remover linha');
     del.addEventListener('click', function () {
       missionRows.splice(index, 1);
+      refreshMissionPeers();
       renderMissionRows();
       renderMissionControls();
     });
@@ -996,6 +1102,7 @@ function renderMissionRows() {
 
     tr.appendChild(tdDrone);
     tr.appendChild(tdProto);
+    tr.appendChild(tdPos);
     tr.appendChild(tdState);
     tr.appendChild(tdDel);
     tbody.appendChild(tr);
@@ -1016,6 +1123,38 @@ function missionAnyIs(states) {
   });
 }
 
+// O /mission/status devolve o frame que aquele drone de fato carregou. É pra
+// isso que ele existe: o embedded não tem como validar que a frota concorda, e
+// dois referenciais diferentes não dão erro nenhum — só dessincronizam os
+// frames cartesianos, e isso só aparece nos dados depois do voo. Conferir aqui,
+// antes do Start, é a única chance.
+//
+// initial_position fica de fora de propósito: é o único campo que DEVE variar
+// por drone. node_ip_dict, origin, rotação e transporte têm que ser idênticos.
+function missionFrameMismatch() {
+  var ids = missionDroneIds().filter(function (id) {
+    return missionEcho[id] != null;
+  });
+  if (ids.length < 2) return '';
+
+  var keys = ['origin_gps_coordinates', 'x_axis_degrees', 'node_ip_dict', 'communication_protocol'];
+  var reference = missionEcho[ids[0]];
+
+  for (var k = 0; k < keys.length; k++) {
+    var key = keys[k];
+    // JSON.stringify basta: são números, strings e um dicionário que a estação
+    // montou igual pra todos — a ordem das chaves vem da mesma origem.
+    var expected = JSON.stringify(reference[key]);
+    for (var i = 1; i < ids.length; i++) {
+      if (JSON.stringify(missionEcho[ids[i]][key]) !== expected) {
+        return 'Drone ' + ids[i] + ' carregou ' + key + ' diferente do drone ' +
+               ids[0] + '. Dê Reset e carregue de novo antes de decolar.';
+      }
+    }
+  }
+  return '';
+}
+
 function missionBlockReason() {
   // O botão desabilitado diz POR QUÊ. O embedded já recusa um load fora de
   // idle com 409; deixar apertar pra receber o 409 seria transformar uma regra
@@ -1034,7 +1173,7 @@ function renderMissionControls() {
   note.hidden = reason === '';
 
   var rowsReady = missionRows.length > 0 && missionRows.every(function (r) {
-    return r.drone !== '' && r.protocol !== '';
+    return r.drone !== '' && r.protocol !== '' && parseInitialPosition(r.position) !== null;
   });
 
   document.getElementById('mission-upload').disabled =
@@ -1043,10 +1182,20 @@ function renderMissionControls() {
     reason !== '' || !rowsReady || !missionFrame || !missionAllAre('idle');
   document.getElementById('mission-setup').disabled =
     reason !== '' || !missionAllAre('loaded');
+  var mismatch = missionFrameMismatch();
   document.getElementById('mission-start').disabled =
-    reason !== '' || !missionAllAre('ready');
+    reason !== '' || !missionAllAre('ready') || mismatch !== '';
+  if (mismatch !== '' && note.hidden) {
+    note.textContent = mismatch;
+    note.hidden = false;
+  }
   document.getElementById('mission-stop').disabled =
     reason !== '' || !missionAnyIs(['running', 'returning']);
+  // Reset é a saída de uma missão travada, então ele NÃO segue a regra dos
+  // outros: fica ligado justamente nos estados em que o resto está bloqueado.
+  // Só não faz sentido com todo mundo já ocioso.
+  document.getElementById('mission-reset').disabled =
+    reason !== '' || missionAllAre('idle');
 
   var frameText = document.getElementById('mission-frame-text');
   if (missionFrame) {
@@ -1093,11 +1242,13 @@ missionSocket.addEventListener('message', function (event) {
     // 'status' às vezes miram um subconjunto (uma linha só, por exemplo). Só o
     // 'load' manda a frota inteira, então só ele pode escrever no readout sem
     // mentir por omissão sobre quem está fora do mapa de vizinhos.
-    if (msg.action === 'load') {
+    if (msg.action === 'load' || msg.action === 'peers') {
       document.getElementById('mission-neighbors').textContent =
         'Vizinhos: ' + JSON.stringify(msg.node_ip_dict);
     }
-    renderMissionRows();
+    // 'peers' nao mexe em drone nenhum, entao nao ha estado novo pra desenhar —
+    // e repintar aqui fecharia um <select> que o operador acabou de abrir.
+    if (msg.action !== 'peers') renderMissionRows();
     renderMissionControls();
     return;
   }
@@ -1118,6 +1269,9 @@ missionSocket.addEventListener('message', function (event) {
       // Só vale a pena pagar esse custo quando o estado de fato mudou.
       var wasUnreachable = missionStates[id] === 'unreachable';
       missionStates[id] = 'unreachable';
+      // Um eco velho de um drone que sumiu afirmaria concordância que ninguém
+      // pode mais confirmar.
+      missionEcho[id] = null;
       if (!wasUnreachable) renderMissionRows();
     } else {
       missionFeedback('Drone ' + id + ' · ' + msg.action + ' · ' + msg.error, false);
@@ -1136,6 +1290,10 @@ missionSocket.addEventListener('message', function (event) {
     // quando o estado muda, para não fechar um <select> aberto a cada poll.
     var changed = missionStates[id] !== msg.data.state;
     missionStates[id] = msg.data.state;
+    // O frame só existe com missão carregada; ocioso ele volta null, e guardar
+    // o null é o certo — é o que tira o drone da comparação em vez de deixar
+    // um eco velho fingindo concordância.
+    missionEcho[id] = msg.data.frame || null;
     if (changed) renderMissionRows();
   } else if (msg.action === 'upload') {
     missionFeedback('Drone ' + id + ' · enviado ' + msg.data.protocol +
@@ -1155,7 +1313,7 @@ missionSocket.addEventListener('message', function (event) {
 // ---------------------------------------------------------------- os cliques
 
 document.getElementById('mission-add-row').addEventListener('click', function () {
-  missionRows.push({ drone: '', protocol: '' });
+  missionRows.push({ drone: '', protocol: '', position: '' });
   renderMissionRows();
   renderMissionControls();
 });
@@ -1190,13 +1348,22 @@ document.getElementById('mission-load').addEventListener('click', function () {
   missionSend({
     action: 'load',
     frame: missionFrame,
+    communication_protocol: document.getElementById('mission-transport').value,
     rows: missionRows
-      .filter(function (r) { return r.drone !== '' && r.protocol !== ''; })
-      .map(function (r) { return { id: Number(r.drone), protocol: r.protocol }; }),
+      .filter(function (r) {
+        return r.drone !== '' && r.protocol !== '' && parseInitialPosition(r.position) !== null;
+      })
+      .map(function (r) {
+        return {
+          id: Number(r.drone),
+          protocol: r.protocol,
+          initial_position: parseInitialPosition(r.position),
+        };
+      }),
   });
 });
 
-['setup', 'start', 'stop'].forEach(function (action) {
+['setup', 'start', 'stop', 'reset'].forEach(function (action) {
   document.getElementById('mission-' + action).addEventListener('click', function () {
     clearMissionFeedback();
     missionSend({ action: action, ids: missionDroneIds().map(Number) });
@@ -1368,35 +1535,203 @@ renderMissionControls();
 // uma convenção que alguém precisa lembrar de respeitar.
 
 var originMap = null;
-var originMarker = null;
+var originMarker = null;      // o pin no GPS 00
+var originRing = null;        // o anel onde a bolinha corre
+var originArm = null;         // a linha do centro até a bolinha: o eixo x
+var originHandle = null;      // a bolinha, arrastável
 var originPoint = null;
+var originSuppressClick = false;   // engole o clique fantasma que segue o giro
+
+// Raio do anel em PIXELS. Em metros ele sumiria num zoom out e engoliria a tela
+// num zoom in — e ele não mede nada, só oferece a alça.
+var ORIGIN_RING_PX = 70;
+
+// Rumo de um ponto a outro, em graus do norte verdadeiro, sentido horário. É
+// exatamente a convenção de x_axis_degrees do embedded, então não há conversão
+// em lugar nenhum — o ângulo que sai daqui é o que vai no corpo do load.
+function bearingBetween(from, to) {
+  var lat1 = from.lat * Math.PI / 180;
+  var lat2 = to.lat * Math.PI / 180;
+  var dLng = (to.lng - from.lng) * Math.PI / 180;
+  var y = Math.sin(dLng) * Math.cos(lat2);
+  var x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+
+function originHeading() {
+  var degrees = parseFloat(document.getElementById('origin-heading').value);
+  return isNaN(degrees) ? 0 : degrees;
+}
+
+// Onde a bolinha fica, pro ângulo dado: ORIGIN_RING_PX pixels do centro.
+// y da tela cresce pra baixo e 0° é o norte, daí o seno no x e o -cosseno no y.
+function handleLatLngFor(degrees) {
+  var from = originMap.latLngToContainerPoint(L.latLng(originPoint.lat, originPoint.lng));
+  var radians = degrees * Math.PI / 180;
+  return originMap.containerPointToLatLng(L.point(
+    from.x + ORIGIN_RING_PX * Math.sin(radians),
+    from.y - ORIGIN_RING_PX * Math.cos(radians)
+  ));
+}
+
+// O mesmo pin de "ponto de interesse" do mapa principal. É o mesmo gesto —
+// apontar um lugar — então tem que ser o mesmo desenho; um marcador diferente
+// aqui faria o operador aprender dois símbolos pra uma ideia só.
+function originPinIcon() {
+  return L.divIcon({
+    html: '<div class="mark is-pin" data-color="amber">' +
+            '<svg class="mark-body" viewBox="0 0 24 24">' + MARKING_GLYPHS.interesse + '</svg>' +
+          '</div>',
+    className: 'veh-marker',
+    iconSize: [40, 40],
+    iconAnchor: MARKING_ANCHORS.interesse,
+  });
+}
+
+function originHandleIcon() {
+  return L.divIcon({
+    html: '<span class="origin-knob"></span>',
+    className: 'veh-marker',
+    iconSize: [22, 22],
+    iconAnchor: [11, 11],
+  });
+}
+
+// O arrasto da bolinha, à mão. Só o RUMO até o ponteiro é lido; a distância é
+// jogada fora, e a bolinha é sempre redesenhada em cima do anel. É o que faz
+// dela um botão de ângulo em vez de um marcador solto.
+function bindOriginKnob() {
+  var element = originHandle.getElement();
+  if (!element) return;
+
+  function angleAt(event) {
+    var box = originMap.getContainer().getBoundingClientRect();
+    var cursor = originMap.containerPointToLatLng(
+      L.point(event.clientX - box.left, event.clientY - box.top)
+    );
+    // originPoint, não um centro capturado: um clique num ponto novo não
+    // religa este handler, e o centro velho daria um ângulo plausível e errado.
+    return bearingBetween(originPoint, cursor);
+  }
+
+  function onMove(event) {
+    var degrees = angleAt(event);
+    document.getElementById('origin-heading').value = degrees.toFixed(1);
+    renderOriginGeometry();          // recoloca a bolinha no anel, sempre
+    setOriginReadout(degrees);
+  }
+
+  function onUp() {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    document.body.classList.remove('is-turning');
+    // Parar o mousedown na bolinha impede o pan, mas NÃO impede o clique: o
+    // navegador dispara `click` no ancestral comum do mousedown e do mouseup, e
+    // com o ponteiro já fora da bolinha esse ancestral é o container do mapa.
+    // O Leaflet repassa, o handler de clique roda, e a origem pula pra onde o
+    // dedo soltou — a 280 m do ponto escolhido, com o ângulo certo por cima.
+    originSuppressClick = true;
+  }
+
+  L.DomEvent.on(element, 'mousedown', function (event) {
+    if (event.button !== 0) return;
+    // Sem isto o Leaflet trata o mousedown como início de pan e o mapa sai
+    // andando junto com o giro.
+    L.DomEvent.stop(event);
+    document.body.classList.add('is-turning');
+    document.addEventListener('mousemove', onMove);
+    // No document, não no elemento: girar rápido tira o ponteiro de cima de uma
+    // bolinha de 14 px, e o gesto não pode morrer aí. Pela mesma razão o mouseup
+    // é global — soltar fora do mapa tem que encerrar o arrasto.
+    document.addEventListener('mouseup', onUp);
+  });
+}
+
+// Desenha anel, braço e bolinha a partir do ponto e do ângulo atuais. Chamada
+// em tudo que muda um dos dois: clique, arrasto, zoom, edição do campo.
+function renderOriginGeometry() {
+  if (originPoint === null) return;
+
+  var center = L.latLng(originPoint.lat, originPoint.lng);
+  var knob = handleLatLngFor(originHeading());
+  var radius = originMap.distance(center, knob);
+
+  if (originRing === null) {
+    originRing = L.circle(center, { radius: radius, className: 'origin-ring', interactive: false }).addTo(originMap);
+    originArm = L.polyline([center, knob], { className: 'origin-arm', interactive: false }).addTo(originMap);
+    // draggable: o Leaflet engole o arrasto que começa num marcador, então o
+    // mapa NÃO se move junto. É isso que faz os dois arrastos conviverem sem
+    // modo nenhum: um começa na bolinha, o outro em qualquer outro lugar.
+    // draggable do Leaflet NÃO: ele move o marcador pro ponteiro, livre nos
+    // dois eixos, e só dava pra devolvê-lo ao anel depois de soltar. A bolinha
+    // é um botão de ângulo — só o ângulo é ajustável, e ela nunca sai do
+    // trilho. Por isso o arrasto é nosso, e o único dado que sai dele é o rumo.
+    originHandle = L.marker(knob, { icon: originHandleIcon(), zIndexOffset: 1000 })
+      .addTo(originMap);
+    bindOriginKnob();
+  } else {
+    originRing.setLatLng(center).setRadius(radius);
+    originArm.setLatLngs([center, knob]);
+    originHandle.setLatLng(knob);
+  }
+}
+
+function setOriginReadout(degrees) {
+  document.getElementById('origin-readout').textContent =
+    'GPS 00: ' + originPoint.lat.toFixed(6) + ', ' + originPoint.lng.toFixed(6) +
+    ' · eixo x a ' + degrees.toFixed(1) + '° do norte';
+}
+
+function buildOriginMap() {
+  // Construído na primeira abertura, não no carregamento da página: o Leaflet
+  // mede o container, e um container escondido mede zero.
+  originMap = L.map('origin-map', { zoomControl: true }).setView(HOME, 16);
+  L.tileLayer(BASEMAPS[DEFAULT_BASEMAP].url, {
+    maxZoom: 19,
+    attribution: TILE_ATTRIBUTION,
+    referrerPolicy: 'strict-origin-when-cross-origin',
+    className: 'basemap-muted',
+  }).addTo(originMap);
+
+  // Clique põe o GPS 00 e o anel aparece junto, já com a bolinha: é o anel que
+  // ensina que existe um ângulo pra escolher. Pedir o ponto num passo e o
+  // ângulo noutro deixava o campo de graus como um número solto que ninguém
+  // sabia de onde tirar.
+  // Um mousedown novo é sempre uma intenção nova: se o clique fantasma do
+  // giro nunca chegou (soltou fora do mapa), a trava não pode sobrar e comer o
+  // próximo clique de verdade.
+  originMap.on('mousedown', function () { originSuppressClick = false; });
+
+  originMap.on('click', function (e) {
+    if (originSuppressClick) { originSuppressClick = false; return; }
+    originPoint = { lat: e.latlng.lat, lng: e.latlng.lng };
+    if (originMarker === null) {
+      originMarker = L.marker(e.latlng, { icon: originPinIcon(), interactive: false }).addTo(originMap);
+    } else {
+      originMarker.setLatLng(e.latlng);
+    }
+    renderOriginGeometry();
+    setOriginReadout(originHeading());
+    document.getElementById('origin-confirm').disabled = false;
+  });
+
+  // Anel e braço têm comprimento em pixels: sem redesenhar, um zoom os deixaria
+  // apontando certo e do tamanho errado.
+  originMap.on('zoomend', renderOriginGeometry);
+
+  // O campo continua editável: arrastar é pra escolher olhando o terreno,
+  // digitar é pra quando o ângulo veio de fora, já decidido. Os dois escrevem
+  // no mesmo lugar, então mexer num move o outro.
+  document.getElementById('origin-heading').addEventListener('change', function () {
+    if (originPoint === null) return;
+    renderOriginGeometry();
+    setOriginReadout(originHeading());
+  });
+}
 
 function openOriginModal() {
   document.getElementById('origin-modal').hidden = false;
-
-  if (originMap === null) {
-    // Construído na primeira abertura, não no carregamento da página: o Leaflet
-    // mede o container, e um container escondido mede zero.
-    originMap = L.map('origin-map').setView(HOME, 16);
-    L.tileLayer(BASEMAPS[DEFAULT_BASEMAP].url, {
-      maxZoom: 19,
-      attribution: TILE_ATTRIBUTION,
-      referrerPolicy: 'strict-origin-when-cross-origin',
-      className: 'basemap-muted',
-    }).addTo(originMap);
-
-    originMap.on('click', function (e) {
-      originPoint = { lat: e.latlng.lat, lng: e.latlng.lng };
-      if (originMarker === null) {
-        originMarker = L.marker(e.latlng).addTo(originMap);
-      } else {
-        originMarker.setLatLng(e.latlng);
-      }
-      document.getElementById('origin-readout').textContent =
-        'GPS 00: ' + originPoint.lat.toFixed(6) + ', ' + originPoint.lng.toFixed(6);
-      document.getElementById('origin-confirm').disabled = false;
-    });
-  }
+  if (originMap === null) buildOriginMap();
 
   // O modal estava escondido quando o mapa foi criado ou redimensionado, então o
   // Leaflet ainda acha que o container tem o tamanho antigo e os tiles rasgam.

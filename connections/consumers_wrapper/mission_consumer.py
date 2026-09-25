@@ -1,4 +1,4 @@
-"""Controle de missão do gradys-embedded, um WebSocket próprio.
+"""Controle de missão do embedded, um WebSocket próprio.
 
 Por que não reusar o PostConsumer: ele manda O MESMO payload pra todo drone da
 lista, no IP que veio da telemetria. Missão precisa do contrário — protocolo e
@@ -47,11 +47,23 @@ class MissionConsumer(AsyncWebsocketConsumer):
   async def dispatch_action(self, message):
     action = message.get('action')
 
+    # 'peers' não fala com drone nenhum: é o mapa de vizinhos que a estação
+    # montaria, devolvido pra tela conferir ANTES de armar. O mapa é regra pura
+    # (connections/embedded.py), e é a estação que decide as portas — pedir a
+    # cada drone o que ela mesma calcula seria inventar uma chance de discordar.
+    if action == 'peers':
+      devices = self.resolve([{'id': i} for i in message.get('ids', [])])
+      await self.send(json.dumps({
+        'action': 'peers', 'done': True,
+        'node_ip_dict': build_node_ip_dict([d for _, d in devices if d is not None]),
+      }))
+      return
+
     if action in ('protocols', 'status'):
       rows = [{'id': i} for i in message.get('ids', [])]
     elif action == 'load':
       rows = message.get('rows', [])
-    elif action in ('setup', 'start', 'stop', 'upload'):
+    elif action in ('setup', 'start', 'stop', 'reset', 'upload'):
       rows = [{'id': i} for i in message.get('ids', [])]
     else:
       await self.report(action, None, False, f'Ação desconhecida: {action}')
@@ -150,7 +162,20 @@ class MissionConsumer(AsyncWebsocketConsumer):
     else:
       await self.report(action, drone_id, False, self.detail_of(data))
 
-  def load_body(self, row, message, node_ip_dict):
+  @staticmethod
+  def load_body(row, message, node_ip_dict):
+    """O corpo do POST /mission/load, na forma que o embedded valida.
+
+    A referência é fleet/sim/smoke.sh, que é o gradys-gs de mentira que o fleet
+    usa pra provar a arquitetura sem estação. Os campos são os mesmos e na mesma
+    forma: protocolo por drone, initial_position por drone, e frame + peer map
+    IDÊNTICOS em toda a frota.
+
+    initial_position não é opcional na prática: /mission/setup devolve 400
+    ("No initial_position for this mission") sem ele, então o drone carrega e
+    trava. A tela exige a coluna antes de liberar o Load; ainda assim o campo só
+    é mandado quando existe, pra um erro de tela não virar [null,null,null].
+    """
     frame = message.get('frame') or {}
     body = {
       'protocol': row.get('protocol'),
@@ -160,6 +185,12 @@ class MissionConsumer(AsyncWebsocketConsumer):
     }
     if row.get('initial_position') is not None:
       body['initial_position'] = row['initial_position']
+    # O transporte é escolhido por missão e tem que ser IGUAL em toda a frota —
+    # transportes misturados não se falam. Omitir deixa o embedded aplicar o
+    # default dele ("http"); mandar explícito é o que permite escolher outro na
+    # tela e conferir no /mission/status depois.
+    if message.get('communication_protocol'):
+      body['communication_protocol'] = message['communication_protocol']
     if message.get('label'):
       body['label'] = message['label']
     return body

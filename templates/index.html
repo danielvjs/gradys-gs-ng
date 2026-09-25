@@ -86,9 +86,18 @@
             Start a drone or the simulator — it registers itself here as soon as it reports a position.
           </p>
 
-          <section class="block block-markings">
+          <section class="block block-markings is-collapsed" id="block-markings">
             <div class="block-head">
-              <h3 class="block-title">Marcações</h3>
+              <!-- O título inteiro é o botão, com um triângulo à esquerda. Era um
+                   chevron solto à direita, na mesma coluna do chevron que recolhe
+                   telemetria e comandos lá em cima — dois botões idênticos, um
+                   acima do outro, fazendo coisas diferentes. -->
+              <button type="button" class="block-toggle" id="mark-collapse"
+                      aria-expanded="false" aria-controls="mark-body">
+                <svg class="caret" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6.2 15.6 12 9 17.8z"/></svg>
+                <span class="block-title">Marcações</span>
+                <span class="count" id="mark-count">0</span>
+              </button>
               <button type="button" class="icon-btn" id="mark-add"
                       aria-pressed="false" title="Marcar um ponto no mapa"
                       aria-label="Marcar um ponto no mapa">
@@ -96,6 +105,7 @@
               </button>
             </div>
 
+            <div id="mark-body">
             <div class="mark-form" id="mark-form" hidden>
               <select class="select" id="mark-kind" aria-label="Tipo da marcação">
                 <option value="pessoa">Pessoa</option>
@@ -117,6 +127,7 @@
 
             <ul class="running" id="mark-list"></ul>
             <p class="hint" id="mark-hint">Nenhuma marcação.</p>
+            </div>
           </section>
         </div>
 
@@ -199,10 +210,18 @@
         </div>
       </div>
 
-      <!-- ---- Missão (gradys-embedded) ---- -->
+      <!-- ---- Missão (embedded) ---- -->
       <div class="pane is-hidden" id="pane-mission" role="tabpanel" aria-labelledby="rail-mission">
         <header class="pane-head">
           <h2 class="pane-title">Missão</h2>
+          <div class="pane-actions">
+            <!-- Com rótulo, não só ícone: um botão novo que ninguém está
+                 procurando não se anuncia com 22 px de seta. -->
+            <button type="button" class="pane-btn" id="mission-widen" aria-pressed="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.4 7.4 4.8 12l4.6 4.6 1.4-1.4L8.4 13h7.2l-2.4 2.2 1.4 1.4L19.2 12l-4.6-4.6-1.4 1.4 2.4 2.2H8.4l2.4-2.2z"/></svg>
+              <span id="mission-widen-label">Alargar</span>
+            </button>
+          </div>
         </header>
 
         <div class="pane-scroll">
@@ -216,8 +235,7 @@
             </div>
             <p class="hint" id="mission-frame-text">Nenhum referencial definido.</p>
             <p class="hint">
-              Este é o GPS 00 da missão, não o HOME do veículo — são APIs
-              diferentes, e definir um não mexe no outro.
+              Este é o GPS 00 da missão, não o HOME do veículo.
             </p>
           </section>
 
@@ -230,12 +248,20 @@
               </button>
             </div>
             <table class="mission-table">
+              <colgroup>
+                <col class="col-drone"><col class="col-proto"><col class="col-pos">
+                <col class="col-state"><col class="col-del">
+              </colgroup>
               <thead>
-                <tr><th>Drone</th><th>Protocolo</th><th>Estado</th><th></th></tr>
+                <tr><th>Drone</th><th>Protocolo</th><th>Posição</th><th>Estado</th><th></th></tr>
               </thead>
               <tbody id="mission-rows"></tbody>
             </table>
             <p class="hint" id="mission-neighbors">Vizinhos: —</p>
+            <p class="hint">
+              A posição inicial é o lugar do drone na formação, em metros no
+              referencial acima (x, y, z). O z é a altura de decolagem.
+            </p>
           </section>
 
           <section class="block">
@@ -249,6 +275,14 @@
             <input id="mission-protocol-file" type="file" accept=".py">
             <button type="button" class="btn btn-block" id="mission-upload" disabled>Enviar protocolo</button>
 
+            <label class="field-label" for="mission-transport">Transporte</label>
+            <select class="select" id="mission-transport">
+              <option value="http" selected>http</option>
+              <option value="https">https</option>
+              <option value="http3">http3</option>
+              <option value="zenoh_tcp">zenoh_tcp</option>
+              <option value="zenoh_quic">zenoh_quic</option>
+            </select>
             <div class="cmd-row">
               <button type="button" class="btn" id="mission-load" disabled>Load</button>
               <button type="button" class="btn" id="mission-setup" disabled>Setup</button>
@@ -257,6 +291,12 @@
               <button type="button" class="btn" id="mission-start" disabled>Start</button>
               <button type="button" class="btn" id="mission-stop" disabled>Stop</button>
             </div>
+            <div class="cmd-row">
+              <button type="button" class="btn" id="mission-reset" disabled>Reset</button>
+            </div>
+            <p class="hint">
+              Reset só devolve o drone pro estado ocioso.
+            </p>
 
             <ul class="mission-feedback" id="mission-feedback"></ul>
           </section>
@@ -308,7 +348,10 @@
       <div class="modal-map" id="origin-map"></div>
 
       <div class="modal-foot">
-        <p class="hint" id="origin-readout">Clique no mapa pra escolher o GPS 00.</p>
+        <p class="hint" id="origin-readout">
+          Clique no mapa pra pôr o GPS 00. Depois arraste a bolinha do anel pra
+          girar o eixo x — o resto do mapa continua arrastando normal.
+        </p>
         <label class="cmd-label" for="origin-heading">Eixo x, graus do norte</label>
         <input class="select" id="origin-heading" type="number" value="0" min="0" max="359" step="1">
         <label class="cmd-label" for="origin-alt">Altitude da origem (m)</label>

@@ -127,13 +127,23 @@ var MARKING_GLYPHS = {
     '<circle cx="8" cy="7.4" r="3"/>' +
     '<path d="M8 11.4c-3.2 0-5.7 2.3-5.7 5.4v4.3h11.4v-4.3c0-3.1-2.5-5.4-5.7-5.4z"/>',
 
-  // Losango com furo. Não é um pin de mapa porque o pin aponta pra baixo e
-  // sugere que o ponto está embaixo dele; aqui o marcador É o ponto, ancorado no
-  // centro. E nenhum glifo de veículo é losango, então não há como confundir.
+  // O pin clássico de mapa, com a ponta em y≈22.4 do viewBox. Era um losango
+  // ancorado no centro; virou pin porque é o que as pessoas já leem como "o
+  // ponto é aqui" sem precisar aprender nada. A ponta é que marca o lugar, não
+  // o centro do desenho — por isso este glifo tem âncora própria em
+  // MARKING_ANCHORS. Desenhar um pin e ancorar no centro poria o ponto meio
+  // metro ao norte do que o operador clicou.
   interesse:
-    '<path d="M12 1.8 22.2 12 12 22.2 1.8 12z"/>' +
-    '<circle cx="12" cy="12" r="3.2" class="nose"/>',
+    '<path d="M12 1.6a7.6 7.6 0 0 0-7.6 7.6c0 5.4 7.6 13.2 7.6 13.2s7.6-7.8 7.6-13.2A7.6 7.6 0 0 0 12 1.6z"/>' +
+    '<circle cx="12" cy="9.2" r="3" class="nose"/>',
 };
+
+// Onde, dentro da caixa de 40×40, fica o ponto que o glifo representa.
+// O padrão é o centro; um pin aponta pra baixo e ancora na ponta. O 33 sai da
+// geometria: o SVG de 30 px fica centrado numa caixa de 40 (topo em y=5), e a
+// ponta está em 22.4 de um viewBox de 24 -> 5 + 30 × 22.4/24 ≈ 33.
+var MARKING_ANCHORS = { interesse: [20, 33] };
+var DEFAULT_MARKING_ANCHOR = [20, 20];
 
 var MARKING_KINDS = ['pessoa', 'pessoas', 'interesse'];
 
@@ -423,15 +433,19 @@ class GroundStationMap {
     var glyph = MARKING_GLYPHS[kind] || MARKING_GLYPHS.interesse;
     var tone = MARKING_COLORS.indexOf(color) === -1 ? 'slate' : color;
 
+    var anchor = MARKING_ANCHORS[kind] || DEFAULT_MARKING_ANCHOR;
+    var shape = MARKING_ANCHORS[kind] ? ' is-pin' : '';
+
     return L.divIcon({
       html:
-        '<div class="mark" data-color="' + tone + '">' +
+        '<div class="mark' + shape + '" data-color="' + tone + '">' +
           '<svg class="mark-body" viewBox="0 0 24 24">' + glyph + '</svg>' +
           (label ? '<span class="mark-label">' + escapeHtml(label) + '</span>' : '') +
         '</div>',
       className: 'veh-marker',      // reusa o reset que mata a caixa branca do Leaflet
       iconSize: [40, 40],
-      iconAnchor: [20, 20],         // a marcação É o ponto, não fica acima dele
+      // Centro pros glifos que SÃO o ponto; ponta pros que apontam pra ele.
+      iconAnchor: anchor,
     });
   }
 
